@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
+
+#ifndef _TSTEST_VERSION_H
+#define _TSTEST_VERSION_H
+
+#define tstest_VERSION_MAJOR @tstest_VERSION_MAJOR@
+#define tstest_VERSION_MINOR @tstest_VERSION_MINOR@
+
+#define TSTEST_VERSION() fprintf(stderr, "tstest-%d.%d\n", tstest_VERSION_MAJOR, tstest_VERSION_MINOR);
+
+
+#endif /* _TSTEST_VERSION_H */
