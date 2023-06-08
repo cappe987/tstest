@@ -25,7 +25,7 @@ project(tstest VERSION 1.0)
 
 # ---- BUILD ----
 add_executable(tstest)
-target_sources(tstest PRIVATE src/ptp_message.c src/tstest.c)
+target_sources(tstest PRIVATE src/ptp_message.c src/extts.c src/pkt.c src/tstest.c)
 
 target_include_directories(tstest PUBLIC ${PROJECT_INCLUDES})
 target_link_libraries(tstest PUBLIC)

@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <arpa/inet.h>
 #include <linux/if_ether.h>
 
 
@@ -197,7 +198,13 @@ union Message {
 	struct management_msg      management;
 } PACKED;
 
+/* pkt.c */
+int run_pkt_mode(int argc, char **argv);
 
+/* extts.c */
+int run_extts_mode(int argc, char **argv);
+
+/* ptp_message.c */
 int str2ptp_type(const char *str);
 int ptp_type2controlField(int type);
 struct ptp_header ptp_header_template();
