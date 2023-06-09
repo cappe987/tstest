@@ -29,9 +29,15 @@
 #include <sys/timex.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <linux/ethtool.h>
+#include <linux/sockios.h>
 
 
 #define pr_err(...) fprintf(stderr, __VA_ARGS__)
+#define pr_emerg(...) fprintf(stderr, __VA_ARGS__)
+#define pr_debug(...) fprintf(stderr, __VA_ARGS__)
 
 
 #define CLOCK_INVALID -1
@@ -64,21 +70,13 @@
 #define PTP_EXTTS_REQUEST2 PTP_EXTTS_REQUEST
 #endif
 
+int running;
 
 struct ts2phc_clock {
-	/*LIST_ENTRY(ts2phc_clock) list;*/
 	clockid_t clkid;
 	int fd;
 	int phc_index;
-	/*enum port_state state;*/
-	/*enum port_state new_state;*/
-	/*struct servo *servo;*/
-	/*enum servo_state servo_state;*/
 	char *name;
-	/*bool no_adj;*/
-	/*bool is_target;*/
-	/*bool is_ts_available;*/
-	/*tmv_t last_ts;*/
 };
 
 
@@ -311,7 +309,7 @@ clockid_t posix_clock_open(const char *device, int *phc_index)
 		pr_err("interface %s does not have a PHC\n", device);
 		return CLOCK_INVALID;
 	}
-	snprintf(phc_device, sizeof(phc_device), "/dev/ptp%d\n", ts_info.phc_index);
+	snprintf(phc_device, sizeof(phc_device), "/dev/ptp%d", ts_info.phc_index);
 	clkid = phc_open(phc_device);
 	if (clkid == CLOCK_INVALID) {
 		pr_err("cannot open %s for %s: %m\n", phc_device, device);
@@ -340,14 +338,6 @@ struct ts2phc_clock *ts2phc_clock_add(const char *device)
 	if (clkid == CLOCK_INVALID)
 		return NULL;
 
-//	LIST_FOREACH(c, &priv->clocks, list) {
-//		if (c->phc_index == phc_index) {
-//			/* Already have the clock, don't add it again */
-//			posix_clock_close(clkid);
-//			return c;
-//		}
-//	}
-
 	c = calloc(1, sizeof(*c));
 	if (!c) {
 		pr_err("failed to allocate memory for a clock\n");
@@ -356,9 +346,6 @@ struct ts2phc_clock *ts2phc_clock_add(const char *device)
 	c->clkid = clkid;
 	c->fd = CLOCKID_TO_FD(clkid);
 	c->phc_index = phc_index;
-	/*c->servo_state = SERVO_UNLOCKED;*/
-	/*c->servo = ts2phc_servo_create(priv, c);*/
-	/*c->no_adj = config_get_int(priv->cfg, NULL, "free_running");*/
 	err = asprintf(&c->name, "/dev/ptp%d", phc_index);
 	if (err < 0) {
 		free(c);
@@ -370,37 +357,102 @@ struct ts2phc_clock *ts2phc_clock_add(const char *device)
 	return c;
 }
 
+static int toggle_extts(struct ts2phc_clock *clock,
+			int chan, int polarity, int ena)
+{
+	struct ptp_extts_request extts;
+	int err;
+
+	extts.index = chan;
+	extts.flags = polarity | (ena ? PTP_ENABLE_FEATURE : 0);
+	err = ioctl(clock->fd, PTP_EXTTS_REQUEST2, &extts);
+	if (err < 0) {
+		pr_err(PTP_EXTTS_REQUEST_FAILED);
+		return -1;
+	}
+	return 0;
+}
+
+void clock_destroy(struct ts2phc_clock *clock)
+{
+
+	posix_clock_close(clock->clkid);
+	free(clock->name);
+	free(clock);
+}
+
+static int poll_events(struct ts2phc_clock *clock)
+{
+	struct pollfd pfd = {
+		.events = POLLIN | POLLPRI,
+		.fd = clock->fd,
+	};
+	struct ptp_extts_event event;
+	int cnt, size;
+
+	while (running) {
+		cnt = poll(&pfd, 1, 10);
+		if (cnt < 0) {
+			if (EINTR == errno) {
+				continue;
+			} else {
+				pr_emerg("poll failed");
+				return -1;
+			}
+		} else if (!cnt) {
+			continue;
+		}
+		size = read(pfd.fd, &event, sizeof(event));
+		if (size != sizeof(event)) {
+			pr_err("read failed");
+			return -1;
+		}
+		printf("%s extts index %u at %lld.%09u",
+		       clock->name, event.index, event.t.sec, event.t.nsec);
+	}
+
+	return 0;
+}
 
 
+static void sig_handler(int sig)
+{
+	running = 0;
+}
 
 int run_extts_mode(int argc, char **argv)
 {
 	struct ptp_extts_request extts;
 	struct ts2phc_clock *clock;
+	int chan, polarity;
+	int err = 0;
 
 	clock = ts2phc_clock_add("eth0");
 
 	if (!clock)
 		return -EINVAL;
 
+	chan = 0;
+	polarity = PTP_RISING_EDGE;
 
-	/*
-	* Disable external time stamping, and then read out any stale
-	* time stamps.
-	*/
-	memset(&extts, 0, sizeof(extts));
-	extts.index = 0;
-	extts.flags = 0;
-	if (ioctl(clock->fd, PTP_EXTTS_REQUEST2, &extts)) {
-		pr_err(PTP_EXTTS_REQUEST_FAILED);
-	}
-	/*if (ts2phc_pps_sink_clear_fifo(sink)) {*/
-		/*goto no_ext_ts;*/
-	/*}*/
+	err = toggle_extts(clock, chan, polarity, 1);
+	if (err)
+		goto out_destroy_clock;
 
-	// TODO: Import code for reading out timestamps
+	running = 1;
+
+	signal(SIGINT, sig_handler);
 
 
+	poll_events(clock);
 
-	return 0;
+
+	err = toggle_extts(clock, 0, 0, 0);
+	if (err)
+		pr_err("failed to disable extts\n");
+
+out_destroy_clock:
+	clock_destroy(clock);
+
+	return err;
 }
