@@ -46,12 +46,9 @@
 static int txcount = 0;
 static int txcount_flag = 0;
 static int nonstop_flag = 0;
-/*static int fully_send = 0;*/
 static int rx_only = 0;
 static int tx_only = 0;
 static int debugen = 0;
-/*static int delay_us = 0;*/
-/*static int send_now = 0;*/
 #ifndef CLOCK_TAI
 #define CLOCK_TAI                       11
 #endif
@@ -77,81 +74,30 @@ static void bail(const char *error)
 	exit(1);
 }
 
-void help()
+void pkt_help()
 {
-	printf("send one ARP package \n \
-			-i <interface> \n \
-			-r RECEIVE MODE \n \
-			-l <length> \n \
-			-m <source macaddr> \n \
-			-c <frame counts> \n \
-			-p <priority> \n \
-			-b <debug enable> \n \
-			-d <delay us> \n \
-			-h help \
-			\n");
+	fprintf(stderr, "\n--- TSTest Packets ---\n\n");
+	fprintf(stderr, "Transmits and receives PTP packets and outputs the timestamps.\n\n\
+Usage:\n\
+        tstest pkt [options]\n\n\
+Options:\n\
+        -i <interface> \n\
+        -T <PTP type> \n\
+        -t TX only mode \n\
+        -r RX only mode \n\
+        -a Timestamp all packets \n\
+        -o Use one-step timestamping \n\
+        -s <seq id> \n\
+        -m <destination MAC> \n\
+        -c <frame counts> \n\
+        -p <priority> \n\
+        -d <debug enable> \n\
+        -h help\n\
+        \n");
 }
-/*static unsigned char sync_packet[] = {*/
-	/*0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, [> dmac <]*/
-	/*0x11, 0x00, 0x80, 0x00, 0x00, 0x00,*/
-	/*0x08, 0x00,		[> eth header <]*/
-	/*0x45, 0x00,			[> hardware type <]*/
-	/*0x08, 0x00,		[> IP type <]*/
-	/*0x06, 0x04,			[> hw len, protocol len <]*/
-	/*0x00, 0x01,			[> request type: 1: ARP, 2: ARP REPLY <]*/
-	/*0x00, 0x00, 0xff, 0x00, 0x00, 0x00,		[> source mac <]*/
-	/*0x09, 0x09, 0x09, 0x09,*/
-	/*0x00, 0x00,	0x00, 0x00,	0x00, 0x00,*/
-	/*0x0a, 0x0a, 0x0a, 0x0a,*/
-	/*0x00, 0x80,*/
-	/*0x00, 0xb0,*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00, 0x00, 0x00,	[> correctionField <]*/
-	/*0x00, 0x00, 0x00, 0x00,	[> reserved <]*/
-	/*0x00, 0x04, 0x9f, 0xff,*/
-	/*0xfe, 0x03, 0xd9, 0xe0,*/
-	/*0x00, 0x01,		[> sourcePortIdentity <]*/
-	/*0x00, 0x1d,		[> sequenceId <]*/
-	/*0x00,			[> controlField <]*/
-	/*0x00,			[> logMessageInterval <]*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00,*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00,*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00,		[> originTimestamp <]*/
-	/*0x00, 0x00, 0x00, 0x00,*/
-	/*0x00, 0x00		[> originTimestamp <]*/
-/*};*/
-
-//static unsigned char sync_packet[] = {
-//	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // dmac
-//	0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, // smac
-//	0x88, 0xf7, // PTPv2 ethertype
-//	0x00, // majorSdoId, messageType (0x0=Sync)
-//	0x02, // minorVersionPtp, versionPTP
-//	0x00, 0x2c, // messageLength
-//	0xff, // domainNumber (use domain number 0xff for this)
-//	0x00, // majorSdoId
-//	0x02, 0x00, // flags
-//	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // correctionField
-//	0x00, 0x00, 0x00, 0x00, // messageTypeSpecific
-//	0xbb, 0xbb, 0xbb, 0xff, 0xfe, 0xbb, 0xbb, 0xbb, // clockIdentity
-//	0x00, 0x01, // sourcePort
-//	0x00, 0x00, // sequenceId
-//	0x00, // controlField
-//	0x00, // logMessagePeriod
-//	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // originTimestamp (seconds)
-//	0x00, 0x00, 0x00, 0x00, // originTimestamp (nanoseconds)
-//};
-
 
 int ptp_type;
 union Message message;
-
 
 #define MAC_LEN  6
 int str2mac(const char *s, unsigned char mac[MAC_LEN])
@@ -483,6 +429,11 @@ int run_pkt_mode(int argc, char **argv)
 	pthread_t receive_pkt;
 	struct ptp_header hdr;
 
+	if (argc == 1) {
+		pkt_help();
+		return EINVAL;
+	}
+
 	str2mac("ff:ff:ff:ff:ff:ff", mac);
 
 	while ((c = getopt (argc, argv, "trapdhoi:m:c:s:T:")) != -1) {
@@ -540,7 +491,7 @@ int run_pkt_mode(int argc, char **argv)
 				/*send_now = 1;*/
 				/*break;*/
 			case 'h':
-				help();
+				pkt_help();
 				return -1;
 			case '?':
 				if (optopt == 'c')
@@ -551,7 +502,7 @@ int run_pkt_mode(int argc, char **argv)
 						optopt);
 				return 1;
 			default:
-				help();
+				pkt_help();
 				return -1;
 		}
 	}

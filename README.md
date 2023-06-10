@@ -19,5 +19,5 @@ Currently supports:
 
 
 ## Credit
-A lot of the code is directly taken from the Linuxptp project and
-simplified/modified for debugging purposes.
+A lot of the code is directly taken from the Linuxptp project and the Linux
+kernel and simplified/modified.

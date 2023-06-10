@@ -7,7 +7,4 @@
 #define tstest_VERSION_MAJOR @tstest_VERSION_MAJOR@
 #define tstest_VERSION_MINOR @tstest_VERSION_MINOR@
 
-#define TSTEST_VERSION() fprintf(stderr, "tstest-%d.%d\n", tstest_VERSION_MAJOR, tstest_VERSION_MINOR);
-
-
 #endif /* _TSTEST_VERSION_H */

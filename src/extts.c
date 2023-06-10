@@ -16,6 +16,7 @@
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <net/if.h>
+#include <getopt.h>
 #include <netpacket/packet.h>
 
 #include <asm/types.h>
@@ -33,6 +34,15 @@
 #include <signal.h>
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
+
+#include "version.h"
+
+typedef struct {
+	char *iface;
+	int polarity;
+	int channel;
+	int pin_idx;
+} Extts_Cfg;
 
 
 #define pr_err(...) fprintf(stderr, __VA_ARGS__)
@@ -106,6 +116,20 @@ enum parser_result {
 	MALFORMED,
 	OUT_OF_RANGE,
 };
+
+void extts_help()
+{
+	fprintf(stderr, "\n--- TSTest External Timestamps ---\n\n");
+	fprintf(stderr, "Enables EXTTS on the given interface and listens for events.\n\n\
+Usage:\n\
+        tstest extts [options]\n\n\
+Options:\n\
+        -i <interface>\n\
+        -p <pin>\n\
+        -c <channel>\n\
+        -P <polarity> (rising|falling|both)\n\
+\n");
+}
 
 
 clockid_t phc_open(const char *phc)
@@ -358,13 +382,28 @@ struct ts2phc_clock *ts2phc_clock_add(const char *device)
 }
 
 static int toggle_extts(struct ts2phc_clock *clock,
-			int chan, int polarity, int ena)
+			Extts_Cfg *cfg, int ena)
 {
 	struct ptp_extts_request extts;
+	struct ptp_pin_desc pin_desc;
 	int err;
 
-	extts.index = chan;
-	extts.flags = polarity | (ena ? PTP_ENABLE_FEATURE : 0);
+	pin_desc.chan = cfg->channel;
+	pin_desc.index = cfg->pin_idx;
+	pin_desc.func = PTP_PF_EXTTS;
+
+	if (ena) {
+		if (phc_number_pins(clock->clkid) > 0) {
+			err = phc_pin_setfunc(clock->clkid, &pin_desc);
+			if (err < 0) {
+				pr_err("PTP_PIN_SETFUNC request failed");
+				return -1;
+			}
+		}
+	}
+
+	extts.index = cfg->channel;
+	extts.flags = cfg->polarity | (ena ? PTP_ENABLE_FEATURE : 0);
 	err = ioctl(clock->fd, PTP_EXTTS_REQUEST2, &extts);
 	if (err < 0) {
 		pr_err(PTP_EXTTS_REQUEST_FAILED);
@@ -420,14 +459,110 @@ static void sig_handler(int sig)
 	running = 0;
 }
 
+static int parse_edge_type(char *str)
+{
+	if (strcmp(str, "rising") == 0)
+		return PTP_RISING_EDGE;
+	else if (strcmp(str, "falling") == 0)
+		return PTP_FALLING_EDGE;
+	else if (strcmp(str, "both") == 0)
+		return PTP_EXTTS_EDGES;
+	else
+		return -1;
+
+}
+
+static int parse_args(int argc, char **argv, Extts_Cfg *cfg)
+{
+
+	int opt_index;
+	int c;
+
+	if (argc == 1) {
+		extts_help();
+		return EINVAL;
+	}
+
+	struct option long_options[] = {
+		{ "iface",            no_argument,       NULL,    'i' },
+		{ "pin",              no_argument,       NULL,    'p' },
+		{ "channel",          no_argument,       NULL,    'c' },
+		{ "polarity",         no_argument,       NULL,    'P' },
+		{ "help",             no_argument,       NULL,    'h' },
+		{ NULL,               0,                 NULL,     0  }
+	};
+
+	while ((c = getopt_long(argc, argv, "i:p:c:P:h", long_options, &opt_index)) != -1) {
+		switch (c)
+		{
+			case 'i':
+				cfg->iface = optarg;
+				break;
+			case 'p':
+				cfg->pin_idx = atoi(optarg);
+				break;
+			case 'c':
+				cfg->channel = atoi(optarg);
+				break;
+			case 'P':
+				cfg->polarity = parse_edge_type(optarg);
+				break;
+			case 'h':
+				extts_help();
+				exit(0);
+			case '?':
+				if (optopt == 'c')
+					fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+				else
+					fprintf (stderr,
+						"Unknown option character `\\x%x'.\n",
+						optopt);
+				return EINVAL;
+			default:
+				extts_help();
+				exit(0);
+		}
+	}
+
+
+	if (!cfg->iface) {
+		fprintf(stderr, "No interface provided\n");
+		return EINVAL;
+	}
+	if (cfg->pin_idx < 0) {
+		fprintf(stderr, "Invalid pin index\n");
+		return EINVAL;
+	}
+	if (cfg->channel < 0) {
+		fprintf(stderr, "Invalid channel\n");
+		return EINVAL;
+	}
+	if (cfg->polarity < 0) {
+		fprintf(stderr, "Invalid polarity type\n");
+		return EINVAL;
+	}
+
+	return 0;
+}
+
 int run_extts_mode(int argc, char **argv)
 {
 	struct ptp_extts_request extts;
 	struct ts2phc_clock *clock;
+	Extts_Cfg cfg;
 	int chan, polarity;
 	int err = 0;
 
-	clock = ts2phc_clock_add("eth0");
+	cfg.iface = NULL;
+	cfg.channel = 0;
+	cfg.pin_idx = 0;
+	cfg.polarity = PTP_RISING_EDGE;
+
+	err = parse_args(argc, argv, &cfg);
+	if (err)
+		return err;
+
+	clock = ts2phc_clock_add(cfg.iface);
 
 	if (!clock)
 		return -EINVAL;
@@ -435,7 +570,7 @@ int run_extts_mode(int argc, char **argv)
 	chan = 0;
 	polarity = PTP_RISING_EDGE;
 
-	err = toggle_extts(clock, chan, polarity, 1);
+	err = toggle_extts(clock, &cfg, 1);
 	if (err)
 		goto out_destroy_clock;
 
@@ -447,7 +582,7 @@ int run_extts_mode(int argc, char **argv)
 	poll_events(clock);
 
 
-	err = toggle_extts(clock, 0, 0, 0);
+	err = toggle_extts(clock, &cfg, 0);
 	if (err)
 		pr_err("failed to disable extts\n");
 
