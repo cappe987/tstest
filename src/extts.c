@@ -221,15 +221,15 @@ int phc_has_pps(clockid_t clkid)
 	return caps.pps;
 }
 
-int phc_has_writephase(clockid_t clkid)
-{
-	struct ptp_clock_caps caps;
+/*int phc_has_writephase(clockid_t clkid)*/
+/*{*/
+	/*struct ptp_clock_caps caps;*/
 
-	if (phc_get_caps(clkid, &caps)) {
-		return 0;
-	}
-	return caps.adjust_phase;
-}
+	/*if (phc_get_caps(clkid, &caps)) {*/
+		/*return 0;*/
+	/*}*/
+	/*return caps.adjust_phase;*/
+/*}*/
 
 enum parser_result get_ranged_int(const char *str_val, int *result,
 				  int min, int max)
@@ -388,10 +388,15 @@ static int toggle_extts(struct ts2phc_clock *clock,
 	struct ptp_pin_desc pin_desc;
 	int err;
 
+	memset(&extts, 0, sizeof(struct ptp_extts_request));
+	memset(&pin_desc, 0, sizeof(pin_desc));
 	pin_desc.chan = cfg->channel;
 	pin_desc.index = cfg->pin_idx;
 	pin_desc.func = PTP_PF_EXTTS;
 
+
+
+	printf("index %d. chan %d. func %d\n", cfg->pin_idx, cfg->channel, PTP_PF_EXTTS);
 	if (ena) {
 		if (phc_number_pins(clock->clkid) > 0) {
 			err = phc_pin_setfunc(clock->clkid, &pin_desc);
@@ -420,6 +425,40 @@ void clock_destroy(struct ts2phc_clock *clock)
 	free(clock);
 }
 
+static int clear_fifo(struct ts2phc_clock *clock)
+{
+	struct pollfd pfd = {
+		.events = POLLIN | POLLPRI,
+		.fd = clock->fd,
+	};
+	struct ptp_extts_event event;
+	int cnt, size;
+
+	while (1) {
+		cnt = poll(&pfd, 1, 100);
+		if (cnt < 0) {
+			if (EINTR == errno) {
+				continue;
+			} else {
+				pr_emerg("poll failed");
+				return -1;
+			}
+		} else if (!cnt) {
+			break;
+		}
+		size = read(pfd.fd, &event, sizeof(event));
+		if (size != sizeof(event)) {
+			pr_err("read failed");
+			return -1;
+		}
+		printf("Clearing queue: %s extts index %u at %lld.%09u",
+		       clock->name, event.index, event.t.sec, event.t.nsec);
+	}
+
+	return 0;
+}
+
+
 static int poll_events(struct ts2phc_clock *clock)
 {
 	struct pollfd pfd = {
@@ -430,10 +469,10 @@ static int poll_events(struct ts2phc_clock *clock)
 	int cnt, size;
 
 	while (running) {
-		cnt = poll(&pfd, 1, 10);
+		cnt = poll(&pfd, 1, 2000);
 		if (cnt < 0) {
 			if (EINTR == errno) {
-				continue;
+				break;
 			} else {
 				pr_emerg("poll failed");
 				return -1;
@@ -446,7 +485,7 @@ static int poll_events(struct ts2phc_clock *clock)
 			pr_err("read failed");
 			return -1;
 		}
-		printf("%s extts index %u at %lld.%09u",
+		printf("%s extts index %u at %lld.%09u\n",
 		       clock->name, event.index, event.t.sec, event.t.nsec);
 	}
 
@@ -578,7 +617,7 @@ int run_extts_mode(int argc, char **argv)
 
 	signal(SIGINT, sig_handler);
 
-
+	clear_fifo(clock);
 	poll_events(clock);
 
 
