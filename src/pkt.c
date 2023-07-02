@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <getopt.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -424,10 +425,18 @@ int run_pkt_mode(int argc, char **argv)
 	int prio = 0;
 	int seq = 0;
 	int one_step = 0;
+	int transportSpecific = 0;
 	/*int ptp_type = 0;*/
 	int tstamp_all = 0;
 	pthread_t receive_pkt;
 	struct ptp_header hdr;
+
+
+	struct option long_options[] = {
+		{ "help",                no_argument,       NULL, 'h' },
+		{ "transportSpecific",  required_argument, NULL,  1 },
+		{ NULL,         0,                 NULL,  0  }
+	};
 
 	if (argc == 1) {
 		pkt_help();
@@ -436,11 +445,13 @@ int run_pkt_mode(int argc, char **argv)
 
 	str2mac("ff:ff:ff:ff:ff:ff", mac);
 
-	while ((c = getopt (argc, argv, "trapdhoi:m:c:s:T:")) != -1) {
+	while ((c = getopt_long(argc, argv, "trapdhoi:m:c:s:T:", long_options, NULL)) != -1) {
 		switch (c)
 		{
+			case 1:
+				transportSpecific = strtoul(optarg, NULL, 0);
+				break;
 			case 'T':
-				/*ptp_type = strtoul(optarg, NULL, 0);*/
 				ptp_type = str2ptp_type(optarg);
 				if (ptp_type < 0) {
 					printf("Invalid ptp type\n");
@@ -511,6 +522,7 @@ int run_pkt_mode(int argc, char **argv)
 	ptp_set_type(&hdr, ptp_type);
 	ptp_set_seqId(&hdr, seq);
 	ptp_set_dmac(&hdr, mac);
+	ptp_set_transport_specific(&hdr, transportSpecific);
 
 	message = ptp_msg_create_type(hdr, ptp_type);
 
@@ -569,10 +581,13 @@ int run_pkt_mode(int argc, char **argv)
 	if (ioctl(sock, SIOCSHWTSTAMP, &hwtstamp) < 0) {
 		if ((errno == EINVAL || errno == ENOTSUP) &&
 		    hwconfig_requested.tx_type == HWTSTAMP_TX_OFF &&
-		    hwconfig_requested.rx_filter == HWTSTAMP_FILTER_NONE)
-			printf("SIOCSHWTSTAMP: disabling hardware time stamping not possible\n");
-		else
-			printf("SIOCSHWTSTAMP: operation not supported!\n");
+		    hwconfig_requested.rx_filter == HWTSTAMP_FILTER_NONE) {
+			fprintf(stderr, "SIOCSHWTSTAMP: disabling hardware time stamping not possible\n");
+			return EINVAL;
+		} else {
+			fprintf(stderr, "SIOCSHWTSTAMP: operation not supported!\n");
+			return EINVAL;
+		}
 	}
 	printf("SIOCSHWTSTAMP: tx_type %d requested, got %d; rx_filter %d requested, got %d\n",
 	       hwconfig_requested.tx_type, hwconfig.tx_type,

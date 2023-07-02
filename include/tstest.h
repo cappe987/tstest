@@ -221,8 +221,12 @@ static void ptp_set_smac(struct ptp_header *hdr, Octet smac[ETH_ALEN]) {
 }
 
 static void ptp_set_type(struct ptp_header *hdr, Octet type) {
-	hdr->tsmt = 0xF & type;
+	hdr->tsmt = (hdr->tsmt & 0xF0) | (0xF & type);
 	hdr->control = ptp_type2controlField(type);
+}
+
+static void ptp_set_transport_specific(struct ptp_header *hdr, Octet ts) {
+	hdr->tsmt = (hdr->tsmt & 0x0F) | ((0xF & ts) << 4);
 }
 
 static void ptp_set_version(struct ptp_header *hdr, Octet version) {
