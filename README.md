@@ -1,3 +1,5 @@
+<!--SPDX-License-Identifier: GPL-2.0-only-->
+<!--SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>-->
 # Tstest - TimeStamp Testing
 
 A tool to test the functionalities required by Linuxptp in a controlled manner.
