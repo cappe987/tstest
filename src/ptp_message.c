@@ -8,9 +8,7 @@
 
 struct ptp_header ptp_header_template()
 {
-	struct ptp_header hdr;
-
-	memset(&hdr, 0, sizeof(struct ptp_header));
+	struct ptp_header hdr = { 0 };
 
 	memcpy(&hdr.dmac, "\xff\xff\xff\xff\xff\xff", 6);
 	memcpy(&hdr.smac, "\xbb\xbb\xbb\xbb\xbb\xbb", 6);
@@ -30,70 +28,70 @@ struct ptp_header ptp_header_template()
 
 struct sync_msg create_sync(struct ptp_header hdr)
 {
-	struct sync_msg msg;
+	struct sync_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct delay_req_msg create_delay_req(struct ptp_header hdr)
 {
-	struct delay_req_msg msg;
+	struct delay_req_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct pdelay_req_msg create_pdelay_req(struct ptp_header hdr)
 {
-	struct pdelay_req_msg msg;
+	struct pdelay_req_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct pdelay_resp_msg create_pdelay_resp(struct ptp_header hdr)
 {
-	struct pdelay_resp_msg msg;
+	struct pdelay_resp_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct follow_up_msg create_follow_up(struct ptp_header hdr)
 {
-	struct follow_up_msg msg;
+	struct follow_up_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct delay_resp_msg create_delay_resp(struct ptp_header hdr)
 {
-	struct delay_resp_msg msg;
+	struct delay_resp_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct pdelay_resp_fup_msg create_pdelay_resp_fup(struct ptp_header hdr)
 {
-	struct pdelay_resp_fup_msg msg;
+	struct pdelay_resp_fup_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct announce_msg create_announce(struct ptp_header hdr)
 {
-	struct announce_msg msg;
+	struct announce_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct signaling_msg create_signaling(struct ptp_header hdr)
 {
-	struct signaling_msg msg;
+	struct signaling_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
 
 struct management_msg create_management(struct ptp_header hdr)
 {
-	struct management_msg msg;
+	struct management_msg msg = { 0 };
 	msg.hdr = hdr;
 	return msg;
 }
