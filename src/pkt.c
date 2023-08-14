@@ -135,6 +135,8 @@ static int do_send_one(int fdt, int length)
 	char *buf;
 
 	buf = (char *)malloc(length);
+	if (!buf)
+		return -ENOMEM;
 	memcpy(buf, &message, ptp_msg_get_size(ptp_type));
 
 	iov.iov_base = buf;
@@ -214,15 +216,16 @@ static void printpacket(struct msghdr *msg, int res,
 	struct cmsghdr *cmsg;
 	struct timeval now;
 
-	if (debugen)
+	if (debugen) {
 		gettimeofday(&now, 0);
+		DEBUG("%ld.%06ld: received %s data, %d bytes from %s, %zu bytes control messages\n",
+		       (long)now.tv_sec, (long)now.tv_usec,
+		       (recvmsg_flags & MSG_ERRQUEUE) ? "error" : "regular",
+		       res,
+		       inet_ntoa(from_addr->sin_addr),
+		       msg->msg_controllen);
+	}
 
-	DEBUG("%ld.%06ld: received %s data, %d bytes from %s, %zu bytes control messages\n",
-	       (long)now.tv_sec, (long)now.tv_usec,
-	       (recvmsg_flags & MSG_ERRQUEUE) ? "error" : "regular",
-	       res,
-	       inet_ntoa(from_addr->sin_addr),
-	       msg->msg_controllen);
 	for (cmsg = CMSG_FIRSTHDR(msg);
 	     cmsg;
 	     cmsg = CMSG_NXTHDR(msg, cmsg)) {

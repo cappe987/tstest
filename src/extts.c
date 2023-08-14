@@ -353,7 +353,7 @@ void posix_clock_close(clockid_t clock)
 
 struct ts2phc_clock *ts2phc_clock_add(const char *device)
 {
-	clockid_t clkid = CLOCK_INVALID;
+	clockid_t clkid;
 	struct ts2phc_clock *c;
 	int phc_index = -1;
 	int err;
@@ -605,9 +605,6 @@ int run_extts_mode(int argc, char **argv)
 
 	if (!clock)
 		return -EINVAL;
-
-	chan = 0;
-	polarity = PTP_RISING_EDGE;
 
 	err = toggle_extts(clock, &cfg, 1);
 	if (err)
