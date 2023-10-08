@@ -230,7 +230,7 @@ static void ptp_set_transport_specific(struct ptp_header *hdr, Octet ts) {
 }
 
 static void ptp_set_version(struct ptp_header *hdr, Octet version) {
-	hdr->ver = 0xF & version;
+	hdr->ver = 0xFF & version;
 }
 
 static void ptp_set_srcport(struct ptp_header *hdr, Octet srcport) {
@@ -239,6 +239,15 @@ static void ptp_set_srcport(struct ptp_header *hdr, Octet srcport) {
 
 static void ptp_set_seqId(struct ptp_header *hdr, UInteger16 seq) {
 	hdr->sequenceId = htons(seq);
+}
+
+static void ptp_set_domain(struct ptp_header *hdr, UInteger8 domain) {
+	hdr->domainNumber = domain;
+}
+
+/* FIXME: FIX THIS so it applies the two octets to the array correctly */
+static void ptp_set_flags(struct ptp_header *hdr, UInteger16 flags) {
+	hdr->flagField[0] = flags;
 }
 
 #endif /* __TS_TEST_H__ */

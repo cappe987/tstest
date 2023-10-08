@@ -4,19 +4,13 @@
 cmake_minimum_required(VERSION 3.12)
 
 # ============= Linktest shared ===============
-project(linktest VERSION 1.0)
+project(tstest VERSION 1.0)
 
 #add_library(link STATIC include/liblink.h src/liblink.c)
 #target_include_directories(link PUBLIC ${PROJECT_SOURCE_DIR}/include/)
 
-macro(m_install)
-	install(TARGETS ${arg1}
-		CONFIGURATIONS Debug
-		RUNTIME DESTINATION bin)
-	install(TARGETS ${arg1}
-		CONFIGURATIONS Release
-		RUNTIME DESTINATION bin)
-endmacro()
+#macro(m_install)
+#endmacro()
 
 set(PROJECT_INCLUDES ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include)
 
@@ -29,7 +23,14 @@ target_sources(tstest PRIVATE src/liblink.c src/ptp_message.c src/extts.c src/pk
 
 target_include_directories(tstest PUBLIC ${PROJECT_INCLUDES})
 target_link_libraries(tstest PUBLIC)
-m_install(tstest)
+
+install(TARGETS tstest
+	CONFIGURATIONS Debug
+	RUNTIME DESTINATION bin)
+install(TARGETS tstest
+	CONFIGURATIONS Release
+	RUNTIME DESTINATION bin)
+#m_install(tstest)
 
 
 # ============= Configure ===============

@@ -17,7 +17,7 @@ struct ptp_header ptp_header_template()
 	ptp_set_version(&hdr, 2);
 
 	hdr.messageLength = htons(0x2c);
-	hdr.domainNumber = 0xff;
+	hdr.domainNumber = 0x00;
 	hdr.flagField[0] = 0x02;
 	memcpy(&hdr.clockIdentity, "\xbb\xbb\xbb\xff\xfe\xbb\xbb\xbb", 6);
 	hdr.sourcePort = htons(0x1);

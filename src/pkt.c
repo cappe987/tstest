@@ -88,11 +88,11 @@ Options:\n\
         -r RX only mode \n\
         -a Timestamp all packets \n\
         -o Use one-step timestamping \n\
-        -s <seq id> \n\
+        -s <sequence id> \n\
         -m <destination MAC> \n\
         -c <frame counts> \n\
         -p <priority> \n\
-        -d <debug enable> \n\
+        -d Enable debug output\n\
         -h help\n\
         \n");
 }
@@ -427,7 +427,12 @@ int run_pkt_mode(int argc, char **argv)
 	int count = 1;
 	int prio = 0;
 	int seq = 0;
+	int domain = 0;
+	int version = 2 | (1 << 4);
 	int one_step = 0;
+	int twoStepFlag = 1;
+	int twoStepFlag_set = 0;
+	int one_step_listen = 0;
 	int transportSpecific = 0;
 	/*int ptp_type = 0;*/
 	int tstamp_all = 0;
@@ -436,8 +441,9 @@ int run_pkt_mode(int argc, char **argv)
 
 
 	struct option long_options[] = {
-		{ "help",                no_argument,       NULL, 'h' },
+		{ "help",               no_argument,       NULL, 'h' },
 		{ "transportSpecific",  required_argument, NULL,  1 },
+		{ "twoStepFlag",        required_argument, NULL,  2 },
 		{ NULL,         0,                 NULL,  0  }
 	};
 
@@ -448,11 +454,15 @@ int run_pkt_mode(int argc, char **argv)
 
 	str2mac("ff:ff:ff:ff:ff:ff", mac);
 
-	while ((c = getopt_long(argc, argv, "trapdhoi:m:c:s:T:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "trapdD:hoOi:m:c:s:T:v:", long_options, NULL)) != -1) {
 		switch (c)
 		{
 			case 1:
 				transportSpecific = strtoul(optarg, NULL, 0);
+				break;
+			case 2:
+				twoStepFlag = strtoul(optarg, NULL, 0);
+				twoStepFlag_set = 1;
 				break;
 			case 'T':
 				ptp_type = str2ptp_type(optarg);
@@ -466,6 +476,9 @@ int run_pkt_mode(int argc, char **argv)
 				break;
 			case 'o':
 				one_step = 1;
+				break;
+			case 'O':
+				one_step_listen = 1;
 				break;
 			case 's':
 				seq = strtoul(optarg, NULL, 0);
@@ -494,6 +507,19 @@ int run_pkt_mode(int argc, char **argv)
 				break;
 			case 'p':
 				prio = strtoul(optarg, NULL, 0);
+				break;
+			case 'D':
+				domain = strtoul(optarg, NULL, 0);
+				break;
+			case 'v':
+				if (optarg == NULL)
+					printf("bad version input\n");
+				else if (strncmp(optarg, "2.1", 3) == 0)
+					version = 2 | (1 << 4);
+				else if (strncmp(optarg, "2", 1) == 0)
+					version = 2;
+				else
+					printf("bad version input\n");
 				break;
 			case 'd':
 				debugen = 1;
@@ -526,8 +552,8 @@ int run_pkt_mode(int argc, char **argv)
 	ptp_set_seqId(&hdr, seq);
 	ptp_set_dmac(&hdr, mac);
 	ptp_set_transport_specific(&hdr, transportSpecific);
-
-	message = ptp_msg_create_type(hdr, ptp_type);
+	ptp_set_version(&hdr, version);
+	ptp_set_domain(&hdr, domain);
 
 	if (!interface) {
 		fprintf(stderr, "Error: missing input interface\n");
@@ -539,6 +565,23 @@ int run_pkt_mode(int argc, char **argv)
 		exit(EINVAL);
 	}
 
+	if (one_step_listen)
+		one_step = 1;
+
+	if (twoStepFlag_set) {
+		if (twoStepFlag)
+			ptp_set_flags(&hdr, 0x02);
+		else
+			ptp_set_flags(&hdr, 0x00);
+	} else {
+		/* Auto-clear twoStepFlag when one-step sync is set.
+		 * Later this also needs to handle p2p1step.
+		 */
+		if (one_step && ptp_type == SYNC)
+			ptp_set_flags(&hdr, 0);
+	}
+
+	message = ptp_msg_create_type(hdr, ptp_type);
 
 	so_timestamping_flags |= (SOF_TIMESTAMPING_TX_HARDWARE | SOF_TIMESTAMPING_OPT_TSONLY);
 	so_timestamping_flags |= (SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_OPT_CMSG);
@@ -650,7 +693,7 @@ int run_pkt_mode(int argc, char **argv)
 			count--;
 		/*if (!fully_send) {*/
 		txcount_flag = 0;
-		if (!one_step)
+		if (!one_step || one_step_listen)
 			rcv_pkt(&sock);
 		/*}*/
 	}
