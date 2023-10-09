@@ -10,7 +10,6 @@
 #include <arpa/inet.h>
 #include <linux/if_ether.h>
 
-
 typedef	int       Boolean;
 typedef uint8_t   Enumeration8;
 typedef uint16_t  Enumeration16;
@@ -204,6 +203,9 @@ int run_pkt_mode(int argc, char **argv);
 /* extts.c */
 int run_extts_mode(int argc, char **argv);
 
+/* delay.c */
+int run_delay_mode(int argc, char **argv);
+
 /* ptp_message.c */
 int str2ptp_type(const char *str);
 int ptp_type2controlField(int type);
@@ -211,6 +213,11 @@ struct ptp_header ptp_header_template();
 int ptp_msg_get_size(int type);
 struct sync_msg create_sync(struct ptp_header hdr);
 union Message ptp_msg_create_type(struct ptp_header hdr, Octet type);
+
+/* timestamping.c */
+void sendpacket(int sock, unsigned char *mac);
+void setsockopt_txtime(int fd);
+void rcv_pkt(int sock);
 
 static void ptp_set_dmac(struct ptp_header *hdr, Octet dmac[ETH_ALEN]) {
 	memcpy(hdr->dmac, dmac, ETH_ALEN);

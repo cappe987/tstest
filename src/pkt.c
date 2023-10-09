@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
-/*
- * Copyright 2019 NXP
- */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,30 +41,14 @@
 # define SIOCSHWTSTAMP 0x89b0
 #endif
 
-static int txcount = 0;
-static int txcount_flag = 0;
-static int nonstop_flag = 0;
-static int rx_only = 0;
-static int tx_only = 0;
-static int debugen = 0;
-#ifndef CLOCK_TAI
-#define CLOCK_TAI                       11
-#endif
-
-#ifndef SCM_TXTIME
-#define SO_TXTIME               61
-#define SCM_TXTIME              SO_TXTIME
-#endif
-#define _DEBUG(file, fmt, ...) do { \
-	if (debugen) { \
-		fprintf(file, " " fmt, \
-		##__VA_ARGS__); \
-	} else { \
-		; \
-	} \
-} while (0)
-
-#define DEBUG(...) _DEBUG(stderr, __VA_ARGS__)
+extern int txcount;
+extern int txcount_flag;
+extern int nonstop_flag;
+extern int rx_only;
+extern int tx_only;
+extern int debugen;
+extern int ptp_type;
+extern union Message message;
 
 static void bail(const char *error)
 {
@@ -97,9 +78,6 @@ Options:\n\
         \n");
 }
 
-int ptp_type;
-union Message message;
-
 #define MAC_LEN  6
 int str2mac(const char *s, unsigned char mac[MAC_LEN])
 {
@@ -113,302 +91,6 @@ int str2mac(const char *s, unsigned char mac[MAC_LEN])
 	memcpy(mac, buf, MAC_LEN);
 	return 0;
 }
-
-static uint64_t gettime_ns(void)
-{
-	struct timespec ts;
-
-	if (clock_gettime(CLOCK_TAI, &ts))
-		printf("error gettime");
-
-	return ts.tv_sec * (1000ULL * 1000 * 1000) + ts.tv_nsec;
-}
-
-static int do_send_one(int fdt, int length)
-{
-	char control[CMSG_SPACE(sizeof(uint64_t))];
-	struct msghdr msg = {0};
-	struct iovec iov = {0};
-	struct cmsghdr *cm;
-	uint64_t tdeliver;
-	int ret;
-	char *buf;
-
-	buf = (char *)malloc(length);
-	if (!buf)
-		return -ENOMEM;
-	memcpy(buf, &message, ptp_msg_get_size(ptp_type));
-
-	iov.iov_base = buf;
-	iov.iov_len = length;
-
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-
-	/*if (delay_us >= 0) {*/
-		/*memset(control, 0, sizeof(control));*/
-		/*msg.msg_control = &control;*/
-		/*msg.msg_controllen = sizeof(control);*/
-
-		/*tdeliver = gettime_ns() + delay_us * 1000;*/
-		/*DEBUG("set TXTIME is %ld\n", tdeliver);*/
-		/*cm = CMSG_FIRSTHDR(&msg);*/
-		/*cm->cmsg_level = SOL_SOCKET;*/
-		/*cm->cmsg_type = SCM_TXTIME;*/
-		/*cm->cmsg_len = CMSG_LEN(sizeof(tdeliver));*/
-		/*memcpy(CMSG_DATA(cm), &tdeliver, sizeof(tdeliver));*/
-	/*}*/
-
-	ret = sendmsg(fdt, &msg, 0);
-	if (ret == -1)
-		printf("error write, return error sendmsg!\n");
-	if (ret == 0)
-		printf("error write: 0B");
-
-	free(buf);
-	return ret;
-}
-
-static void sendpacket(int sock, unsigned char *mac)
-{
-	struct timeval now, nowb;
-	int res;
-	/*int i;*/
-
-	/*for (i = 0; i < MAC_LEN; i++)*/
-		/*sync_packet[6 + i] = mac[i];*/
-	/*sync_packet[17] = length >> 8;*/
-	/*sync_packet[18] = (char)(length & 0x00ff);*/
-
-	gettimeofday(&nowb, 0);
-
-	/*if (length < sizeof(sync_packet))*/
-		/*res = send(sock, sync_packet, sizeof(sync_packet), 0);*/
-	/*else {*/
-#if 0
-		char *buf = (char *)malloc(length);
-
-		memcpy(buf, sync_packet, sizeof(sync_packet));
-		res = send(sock, buf, length, 0);
-		free(buf);
-#endif
-	res = do_send_one(sock, ptp_msg_get_size(ptp_type));
-	/*}*/
-
-	gettimeofday(&now, 0);
-	if (res < 0) {
-		DEBUG("%s: %s\n", "send", strerror(errno));
-	} else {
-		if (debugen)
-			DEBUG("%ld.%06ld - %ld.%06ld: sent %d bytes\n",
-			      (long)nowb.tv_sec, (long)nowb.tv_usec,
-			      (long)now.tv_sec, (long)now.tv_usec,
-			      res);
-		else
-			printf("Sent %d bytes\n", res);
-	}
-}
-
-static void printpacket(struct msghdr *msg, int res,
-			int recvmsg_flags)
-{
-	struct sockaddr_in *from_addr = (struct sockaddr_in *)msg->msg_name;
-	struct cmsghdr *cmsg;
-	struct timeval now;
-
-	if (debugen) {
-		gettimeofday(&now, 0);
-		DEBUG("%ld.%06ld: received %s data, %d bytes from %s, %zu bytes control messages\n",
-		       (long)now.tv_sec, (long)now.tv_usec,
-		       (recvmsg_flags & MSG_ERRQUEUE) ? "error" : "regular",
-		       res,
-		       inet_ntoa(from_addr->sin_addr),
-		       msg->msg_controllen);
-	}
-
-	for (cmsg = CMSG_FIRSTHDR(msg);
-	     cmsg;
-	     cmsg = CMSG_NXTHDR(msg, cmsg)) {
-		DEBUG("   cmsg len %zu: ", cmsg->cmsg_len);
-		switch (cmsg->cmsg_level) {
-		case SOL_SOCKET:
-			DEBUG("SOL_SOCKET ");
-			switch (cmsg->cmsg_type) {
-			case SO_TIMESTAMP: {
-				struct timeval *stamp =
-					(struct timeval *)CMSG_DATA(cmsg);
-				DEBUG("SO_TIMESTAMP %ld.%06ld",
-				       (long)stamp->tv_sec,
-				       (long)stamp->tv_usec);
-				break;
-			}
-			case SO_TIMESTAMPNS: {
-				struct timespec *stamp =
-					(struct timespec *)CMSG_DATA(cmsg);
-				DEBUG("SO_TIMESTAMPNS %ld.%09ld",
-				       (long)stamp->tv_sec,
-				       (long)stamp->tv_nsec);
-				break;
-			}
-			case SO_TIMESTAMPING: {
-				struct timespec *stamp =
-					(struct timespec *)CMSG_DATA(cmsg);
-				DEBUG("SO_TIMESTAMPING ");
-				stamp++;
-				/* skip deprecated HW transformed */
-				stamp++;
-				printf("  HW raw %ld.%09ld\n",
-				       (long)stamp->tv_sec,
-				       (long)stamp->tv_nsec);
-				if (recvmsg_flags & MSG_ERRQUEUE) {
-					/*if (!fully_send) {*/
-					txcount_flag = 1;
-					if (nonstop_flag) {
-						txcount++;
-					} else {
-						txcount--;
-					}
-					/*} else {*/
-						/*if (nonstop_flag) {*/
-							/*txcount++;*/
-						/*} else {*/
-							/*txcount--;*/
-							/*if (!txcount)*/
-								/*txcount_flag = 1;*/
-						/*}*/
-					/*}*/
-					DEBUG("tx counter %d\n", txcount);
-				}
-				break;
-			}
-			default:
-				DEBUG("type %d", cmsg->cmsg_type);
-				break;
-			}
-			break;
-		case IPPROTO_IP:
-			DEBUG("IPPROTO_IP ");
-			switch (cmsg->cmsg_type) {
-			case IP_RECVERR: {
-				struct sock_extended_err *err =
-					(struct sock_extended_err *)CMSG_DATA(cmsg);
-				DEBUG("IP_RECVERR ee_errno '%s' ee_origin %d => %s",
-					strerror(err->ee_errno),
-					err->ee_origin,
-#ifdef SO_EE_ORIGIN_TIMESTAMPING
-					err->ee_origin == SO_EE_ORIGIN_TIMESTAMPING ?
-					"bounced packet" : "unexpected origin"
-#else
-					"probably SO_EE_ORIGIN_TIMESTAMPING"
-#endif
-					);
-				break;
-			}
-			case IP_PKTINFO: {
-				struct in_pktinfo *pktinfo =
-					(struct in_pktinfo *)CMSG_DATA(cmsg);
-				DEBUG("IP_PKTINFO interface index %u",
-					pktinfo->ipi_ifindex);
-				break;
-			}
-			default:
-				DEBUG("type %d", cmsg->cmsg_type);
-				break;
-			}
-			break;
-		default:
-			DEBUG("level %d type %d",
-				cmsg->cmsg_level,
-				cmsg->cmsg_type);
-			break;
-		}
-		DEBUG("\n");
-	}
-}
-
-static void recvpacket(int sock, int recvmsg_flags)
-{
-	char data[256];
-	struct msghdr msg;
-	struct iovec entry;
-	struct sockaddr_in from_addr;
-	struct {
-		struct cmsghdr cm;
-		char control[512];
-	} control;
-	int res;
-
-	memset(&msg, 0, sizeof(msg));
-	msg.msg_iov = &entry;
-	msg.msg_iovlen = 1;
-	entry.iov_base = data;
-	entry.iov_len = sizeof(data);
-	msg.msg_name = (caddr_t)&from_addr;
-	msg.msg_namelen = sizeof(from_addr);
-	msg.msg_control = &control;
-	msg.msg_controllen = sizeof(control);
-
-	res = recvmsg(sock, &msg, recvmsg_flags | MSG_DONTWAIT);
-	if (res < 0)
-		DEBUG("%s %s: %s\n",
-		       "recvmsg",
-		       "regular",
-		       strerror(errno));
-	else
-		printpacket(&msg, res, recvmsg_flags);
-}
-
-void *rcv_pkt(void *data)
-{
-	int res;
-	fd_set readfs, errorfs;
-	int sock;
-
-	sock = *(int *)data;
-
-	while (!txcount_flag) {
-		FD_ZERO(&readfs);
-		FD_ZERO(&errorfs);
-		FD_SET(sock, &readfs);
-		FD_SET(sock, &errorfs);
-
-		res = select(sock + 1, &readfs, 0, &errorfs, NULL);
-		if (res > 0) {
-			recvpacket(sock, 0);
-			if (!rx_only)
-				recvpacket(sock, MSG_ERRQUEUE);
-		}
-	}
-
-	return 0;
-}
-
-static void setsockopt_txtime(int fd)
-{
-	struct sock_txtime so_txtime_val = {
-			.clockid =  CLOCK_TAI,
-			/*.flags = SOF_TXTIME_DEADLINE_MODE | SOF_TXTIME_REPORT_ERRORS */
-			.flags = SOF_TXTIME_REPORT_ERRORS
-			};
-	struct sock_txtime so_txtime_val_read = { 0 };
-	socklen_t vallen = sizeof(so_txtime_val);
-
-	/*if (send_now)*/
-		/*so_txtime_val.flags |= SOF_TXTIME_DEADLINE_MODE;*/
-
-	if (setsockopt(fd, SOL_SOCKET, SO_TXTIME,
-		       &so_txtime_val, sizeof(so_txtime_val)))
-		printf("setsockopt txtime error!\n");
-
-	if (getsockopt(fd, SOL_SOCKET, SO_TXTIME,
-		       &so_txtime_val_read, &vallen))
-		printf("getsockopt txtime error!\n");
-
-	if (vallen != sizeof(so_txtime_val) ||
-	    memcmp(&so_txtime_val, &so_txtime_val_read, vallen))
-		printf("getsockopt txtime: mismatch\n");
-}
-
 
 int run_pkt_mode(int argc, char **argv)
 {
@@ -680,7 +362,7 @@ int run_pkt_mode(int argc, char **argv)
 
 	if (rx_only) {
 		while(1)
-			rcv_pkt(&sock);
+			rcv_pkt(sock);
 	}
 
 	/*if (fully_send)*/
@@ -694,7 +376,7 @@ int run_pkt_mode(int argc, char **argv)
 		/*if (!fully_send) {*/
 		txcount_flag = 0;
 		if (!one_step || one_step_listen)
-			rcv_pkt(&sock);
+			rcv_pkt(sock);
 		/*}*/
 	}
 
