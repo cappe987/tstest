@@ -8,8 +8,13 @@
 #include <time.h>
 #include <inttypes.h>
 #include <sys/un.h>
+#include <sys/socket.h>
+#include <netpacket/packet.h>
+#include <netinet/in.h>
 
 /* A lot taken from Linuxptp project */
+
+#define NS_PER_SEC 1000000000
 
 /**
  * We implement the time value as a 64 bit signed integer containing
@@ -91,5 +96,14 @@ struct address {
 };
 
 
+int sk_receive(int fd, void *buf, int buflen,
+	       struct address *addr, struct hw_timestamp *hwts, int flags);
+int raw_send(int fd, enum transport_event event, void *buf, int len,
+	     struct hw_timestamp *hwts);
+int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
+			 enum transport_type transport, int vclock);
+//int socket_init_raw(char *interface);
+int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
+		unsigned char *p2p_dst_mac, int socket_priority);
 
 #endif /* __TSTEST_TIMESTAMPING_H__ */

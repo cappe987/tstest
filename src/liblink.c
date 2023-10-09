@@ -25,7 +25,7 @@ int get_iface_index(int sockfd, char iface[IFNAMSIZ])
 	strncpy(buffer.ifr_name, iface, IFNAMSIZ);
 
 	if (ioctl(sockfd, SIOCGIFINDEX, &buffer) < 0) {
-		ERR("No such device: %s\n", iface);
+		ERR("No such device: %s", iface);
 		return -1;
 	}
 
@@ -40,7 +40,7 @@ int get_smac(int sockfd, char ifname[IFNAMSIZ], unsigned char smac[6])
 	if (ioctl(sockfd, SIOCGIFHWADDR, &buffer) < 0) {
 		printf("smac %2X\n", buffer.ifr_hwaddr.sa_data[0]);
 		perror("Error");
-		ERR("Unable to find source MAC\n");
+		ERR("Unable to find source MAC");
 		return -ENOENT;
 	}
 	memcpy(smac, (buffer.ifr_hwaddr.sa_data), ETH_ALEN);
@@ -94,3 +94,17 @@ void set_smac(unsigned char *frame, unsigned char mac[ETH_ALEN])
 	for (int i = 0; i < ETH_ALEN; i++)
 		frame[6 + i] = mac[i];
 }
+
+int str2mac(const char *s, unsigned char mac[ETH_ALEN])
+{
+	unsigned char buf[ETH_ALEN];
+	int c;
+	c = sscanf(s, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+		   &buf[0], &buf[1], &buf[2], &buf[3], &buf[4], &buf[5]);
+	if (c != ETH_ALEN) {
+		return -1;
+	}
+	memcpy(mac, buf, ETH_ALEN);
+	return 0;
+}
+
