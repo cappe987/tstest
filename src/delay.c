@@ -6,26 +6,33 @@
 #include <getopt.h>
 #include <errno.h>
 #include <endian.h>
+#include <unistd.h>
 
 #include "timestamping.h"
 #include "tstest.h"
 #include "liblink.h"
 
-void print_ts(Integer64 ns)
+void print_ts(char *text, Integer64 ns)
 {
-	printf("%ld.%ld\n", ns / NS_PER_SEC, ns % NS_PER_SEC);
+	printf("%s: %ld.%ld\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
 }
+
+/* TODO:
+ * - Clean up and separate server and client
+ * - Arguments for domain, version, etc.
+ * - Implement mmedian_sample delay filter (ptp4l delay_filter)
+ * - Implement one-step P2P
+ * - Implement E2E
+ */
 
 int run_delay_mode(int argc, char **argv)
 {
-	/*char interface[16] = "veth1";*/
 	struct ptp_header hdr;
 	union Message message;
 	Octet mac[ETH_ALEN];
 	char *interface;
 	int err;
 	unsigned char pkt[1600];
-	/*char pkt[14] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0x00, 0x00};*/
 
 	if (argc <= 0)
 		return EINVAL;
@@ -51,42 +58,65 @@ int run_delay_mode(int argc, char **argv)
 	int len = ptp_msg_get_size(PDELAY_REQ);
 
 
-	int sock = open_socket(interface, 0, NULL, NULL, 0);
-	if (sock < 0)
-		return sock;
+	int e_sock = open_socket(interface, 1, ptp_dst_mac, p2p_dst_mac, 0);
+	if (e_sock < 0)
+		return e_sock;
+	int g_sock = open_socket(interface, 0, ptp_dst_mac, p2p_dst_mac, 0);
+	if (g_sock < 0)
+		return g_sock;
 
 	struct hw_timestamp hwts = { 0 };
 	hwts.type = TS_SOFTWARE;
-	err = sk_timestamping_init(sock, interface, hwts.type,
+	err = sk_timestamping_init(e_sock, interface, hwts.type,
 				   TRANS_IEEE_802_3, -1);
 	if (err < 0)
 		return -err;
 
 	if (argc > 2 && strcmp(argv[2], "client") == 0) {
-		err = raw_send(sock, TRANS_EVENT, &message, len, &hwts);
-		if (err < 0) {
-			return -err;
+		while (1) {
+			err = raw_send(e_sock, TRANS_EVENT, &message, len, &hwts);
+			if (err < 0) {
+				return -err;
+			}
+			Integer64 t1 = hwts.ts.ns;
+			message.pdelay_req.hdr.sequenceId = htons(ntohs(message.pdelay_req.hdr.sequenceId)+1);
+			err = sk_receive(e_sock, pkt, 1600, NULL, &hwts, 0);
+			if (err < 0) {
+				return -err;
+			}
+			struct ptp_header *hdr = (struct ptp_header*) pkt;
+			union Message *msg = (union Message*) pkt;
+			Integer64 t2 = be_timestamp_to_ns(msg->pdelay_resp.requestReceiptTimestamp);
+			Integer64 t4 = hwts.ts.ns;
+			Integer64 pdelay_resp_corr = be64toh(hdr->correction) >> 16;
+
+			err = sk_receive(g_sock, pkt, 1600, NULL, &hwts, 0);
+			if (err < 0) {
+				return -err;
+			}
+			hdr = (struct ptp_header*) pkt;
+			/*printf("Type %d\n", hdr->tsmt & 0xf);*/
+
+			Integer64 t3 = be_timestamp_to_ns(msg->pdelay_resp_fup.responseOriginTimestamp);
+			Integer64 pdelay_resp_fup_corr = be64toh(hdr->correction) >> 16;
+			Integer64 pdelay = ((t4 - t1) - (t3 - t2))/2;
+			printf("Pdelay %ld\n", pdelay);
+
+			usleep(1000000);
 		}
 		return 0;
 	}
-	/*Integer64 sec = hwts.ts.ns / NS_PER_SEC;*/
-	/*Integer64 nsec = hwts.ts.ns % NS_PER_SEC;*/
-	/*printf("Timestamp %ld.%ld\n", sec, nsec);*/
 
 
 	while (1) {
-		int err = sk_receive(sock, pkt, 1600, NULL, &hwts, 0);
+		err = sk_receive(e_sock, pkt, 1600, NULL, &hwts, 0);
 		if (err < 0) {
 			printf("Error. %d\n", err);
 			continue;
 		}
-		/*Integer64 sec = hwts.ts.ns / NS_PER_SEC;*/
-		/*Integer64 nsec = hwts.ts.ns % NS_PER_SEC;*/
-		/*printf("Timestamp %ld.%ld\n", sec, nsec);*/
-
 
 		Integer64 req_rx_ts = hwts.ts.ns;
-		print_ts(req_rx_ts);
+		/*print_ts("req", req_rx_ts);*/
 		struct ptp_header *hdr = (struct ptp_header*) pkt;
 		union Message *msg = (union Message*) pkt;
 		int type = hdr->tsmt & 0xF;
@@ -102,32 +132,36 @@ int run_delay_mode(int argc, char **argv)
 		       &hdr->sourcePortIdentity,
 		       sizeof(struct PortIdentity));
 		// TODO: Set our own sourcePortIdentity
-		memset(&msg->pdelay_resp.requestReceiptTimestamp, 0, sizeof(struct Timestamp));
-		hdr->tsmt = (hdr->tsmt & 0xF0) | PDELAY_RESP;
-		/*printf("Type %d\n", msg->pdelay_req.hdr.tsmt & 0xf);*/
+		memcpy(&hdr->sourcePortIdentity.clockIdentity.id, "\xaa\xaa\xaa\xff\xfe\xaa\xaa\xaa", 6);
+		struct Timestamp ts;
+		Integer64 sec = req_rx_ts / NS_PER_SEC;
+		Integer32 nsec = req_rx_ts % NS_PER_SEC;
+		ts.seconds_lsb = sec & 0xFFFFFFFF;
+		ts.seconds_msb = (sec >> 32) & 0xFFFF;
+		ts.nanoseconds = nsec;
 
-		err = raw_send(sock, TRANS_EVENT, msg, ptp_msg_get_size(PDELAY_RESP), &hwts);
+		msg->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(req_rx_ts);
+		hdr->tsmt = (hdr->tsmt & 0xF0) | PDELAY_RESP;
+
+		err = raw_send(e_sock, TRANS_EVENT, msg, ptp_msg_get_size(PDELAY_RESP), &hwts);
 		if (err < 0) {
 			return -err;
 		}
 
 		Integer64 resp_tx_ts = hwts.ts.ns;
-		print_ts(resp_tx_ts);
+		/*print_ts("resp", resp_tx_ts);*/
 
 		hdr->tsmt = (hdr->tsmt & 0xF0) | PDELAY_RESP_FUP;
-		/*printf("Type %d\n", hdr->tsmt & 0xf);*/
-		hdr->correction = htobe64((resp_tx_ts - req_rx_ts) << 16);
-		print_ts(resp_tx_ts - req_rx_ts);
-		printf("0x%lX\n", resp_tx_ts - req_rx_ts);
+		msg->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(resp_tx_ts);
+		/*hdr->correction = htobe64((resp_tx_ts - req_rx_ts) << 16);*/
+		/*print_ts("diff", resp_tx_ts - req_rx_ts);*/
 
-		err = raw_send(sock, TRANS_GENERAL, msg, ptp_msg_get_size(PDELAY_RESP_FUP), &hwts);
+		err = raw_send(g_sock, TRANS_GENERAL, msg, ptp_msg_get_size(PDELAY_RESP_FUP), NULL);
 		if (err < 0) {
 			return -err;
 		}
-		printf("Sent response\n");
-
+		/*printf("Sent response\n");*/
 	}
-
 
 	return 0;
 }
