@@ -213,6 +213,8 @@ struct ptp_header ptp_header_template();
 int ptp_msg_get_size(int type);
 struct sync_msg create_sync(struct ptp_header hdr);
 union Message ptp_msg_create_type(struct ptp_header hdr, Octet type);
+struct Timestamp ns_to_be_timestamp(Integer64 ns);
+Integer64 be_timestamp_to_ns(struct Timestamp ts);
 
 /* timestamping.c */
 void sendpacket(int sock, unsigned char *mac);

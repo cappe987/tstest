@@ -95,6 +95,8 @@ struct address {
 	};
 };
 
+static unsigned char ptp_dst_mac[] = {0x01, 0x1B, 0x19, 0x00, 0x00, 0x00};
+static unsigned char p2p_dst_mac[] = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x0E};
 
 int sk_receive(int fd, void *buf, int buflen,
 	       struct address *addr, struct hw_timestamp *hwts, int flags);

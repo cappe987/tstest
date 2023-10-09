@@ -23,12 +23,15 @@
 #include <linux/errqueue.h>
 #include <linux/net_tstamp.h>
 #include <linux/sockios.h>
+#include <linux/filter.h>
 
 #include <poll.h>
 
 #include "tstest.h"
 #include "liblink.h"
 #include "timestamping.h"
+
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 #ifndef CLOCK_TAI
 #define CLOCK_TAI                       11
@@ -722,6 +725,137 @@ static int sk_interface_index(int fd, const char *name)
 	return ifreq.ifr_ifindex;
 }
 
+/*
+ * tcpdump -d \
+ * '   (ether[12:2] == 0x8100 and ether[12 + 4 :2] == 0x88F7 and ether[14+4 :1] & 0x8 == 0x8) '\
+ * 'or (ether[12:2] == 0x88F7 and                                ether[14   :1] & 0x8 == 0x8) '
+ *
+ * (000) ldh      [12]
+ * (001) jeq      #0x8100          jt 2    jf 7
+ * (002) ldh      [16]
+ * (003) jeq      #0x88f7          jt 4    jf 12
+ * (004) ldb      [18]
+ * (005) and      #0x8
+ * (006) jeq      #0x8             jt 11   jf 12
+ * (007) jeq      #0x88f7          jt 8    jf 12
+ * (008) ldb      [14]
+ * (009) and      #0x8
+ * (010) jeq      #0x8             jt 11   jf 12
+ * (011) ret      #262144
+ * (012) ret      #0
+*/
+static struct sock_filter raw_filter_vlan_norm_general[] = {
+	{ 0x28, 0, 0, 0x0000000c },
+	{ 0x15, 0, 5, 0x00008100 },
+	{ 0x28, 0, 0, 0x00000010 },
+	{ 0x15, 0, 8, 0x000088f7 },
+	{ 0x30, 0, 0, 0x00000012 },
+	{ 0x54, 0, 0, 0x00000008 },
+	{ 0x15, 4, 5, 0x00000008 },
+	{ 0x15, 0, 4, 0x000088f7 },
+	{ 0x30, 0, 0, 0x0000000e },
+	{ 0x54, 0, 0, 0x00000008 },
+	{ 0x15, 0, 1, 0x00000008 },
+	{ 0x6, 0, 0, 0x00040000 },
+	{ 0x6, 0, 0, 0x00000000 },
+};
+
+/*
+ * tcpdump -d \
+ *  '   (ether[12:2] == 0x8100 and ether[12 + 4 :2] == 0x88F7 and ether[14+4 :1] & 0x8 != 0x8) '\
+ *  'or (ether[12:2] == 0x88F7 and                                ether[14   :1] & 0x8 != 0x8) '
+ *
+ * (000) ldh      [12]
+ * (001) jeq      #0x8100          jt 2    jf 7
+ * (002) ldh      [16]
+ * (003) jeq      #0x88f7          jt 4    jf 12
+ * (004) ldb      [18]
+ * (005) and      #0x8
+ * (006) jeq      #0x8             jt 12   jf 11
+ * (007) jeq      #0x88f7          jt 8    jf 12
+ * (008) ldb      [14]
+ * (009) and      #0x8
+ * (010) jeq      #0x8             jt 12   jf 11
+ * (011) ret      #262144
+ * (012) ret      #0
+ */
+static struct sock_filter raw_filter_vlan_norm_event[] = {
+	{ 0x28, 0, 0, 0x0000000c },
+	{ 0x15, 0, 5, 0x00008100 },
+	{ 0x28, 0, 0, 0x00000010 },
+	{ 0x15, 0, 8, 0x000088f7 },
+	{ 0x30, 0, 0, 0x00000012 },
+	{ 0x54, 0, 0, 0x00000008 },
+	{ 0x15, 5, 4, 0x00000008 },
+	{ 0x15, 0, 4, 0x000088f7 },
+	{ 0x30, 0, 0, 0x0000000e },
+	{ 0x54, 0, 0, 0x00000008 },
+	{ 0x15, 1, 0, 0x00000008 },
+	{ 0x6, 0, 0, 0x00040000 },
+	{ 0x6, 0, 0, 0x00000000 },
+};
+
+static int raw_configure(int fd, int event, int index,
+			 unsigned char *addr1, unsigned char *addr2, int enable)
+{
+	int err1, err2, option;
+	struct packet_mreq mreq;
+	struct sock_fprog prg;
+
+	if (event) {
+		prg.len = ARRAY_SIZE(raw_filter_vlan_norm_event);
+		prg.filter = raw_filter_vlan_norm_event;
+	} else {
+		prg.len = ARRAY_SIZE(raw_filter_vlan_norm_general);
+		prg.filter = raw_filter_vlan_norm_general;
+	}
+
+	if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &prg, sizeof(prg))) {
+		ERR_NO("setsockopt SO_ATTACH_FILTER failed: %m");
+		return -1;
+	}
+
+	option = enable ? PACKET_ADD_MEMBERSHIP : PACKET_DROP_MEMBERSHIP;
+
+	memset(&mreq, 0, sizeof(mreq));
+	mreq.mr_ifindex = index;
+	mreq.mr_type = PACKET_MR_MULTICAST;
+	mreq.mr_alen = ETH_ALEN;
+	memcpy(mreq.mr_address, addr1, ETH_ALEN);
+
+	err1 = setsockopt(fd, SOL_PACKET, option, &mreq, sizeof(mreq));
+	if (err1)
+		printf("warning: setsockopt PACKET_MR_MULTICAST failed: %m\n");
+
+	memcpy(mreq.mr_address, addr2, ETH_ALEN);
+
+	err2 = setsockopt(fd, SOL_PACKET, option, &mreq, sizeof(mreq));
+	if (err2)
+		printf("warning: setsockopt PACKET_MR_MULTICAST failed: %m\n");
+
+	if (!err1 && !err2)
+		return 0;
+
+	mreq.mr_ifindex = index;
+	mreq.mr_type = PACKET_MR_ALLMULTI;
+	mreq.mr_alen = 0;
+	if (!setsockopt(fd, SOL_PACKET, option, &mreq, sizeof(mreq))) {
+		return 0;
+	}
+	printf("warning: setsockopt PACKET_MR_ALLMULTI failed: %m\n");
+
+	mreq.mr_ifindex = index;
+	mreq.mr_type = PACKET_MR_PROMISC;
+	mreq.mr_alen = 0;
+	if (!setsockopt(fd, SOL_PACKET, option, &mreq, sizeof(mreq))) {
+		return 0;
+	}
+	printf("warning: setsockopt PACKET_MR_PROMISC failed: %m\n");
+
+	ERR("all socket options failed");
+	return -1;
+}
+
 int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
 		unsigned char *p2p_dst_mac, int socket_priority)
 {
@@ -756,8 +890,8 @@ int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
 		ERR_NO("setsockopt SO_PRIORITY failed: %m");
 		goto no_option;
 	}
-	/*if (raw_configure(fd, event, index, ptp_dst_mac, p2p_dst_mac, 1))*/
-		/*goto no_option;*/
+	if (raw_configure(fd, event, index, ptp_dst_mac, p2p_dst_mac, 1))
+		goto no_option;
 
 	return fd;
 no_option:
@@ -765,6 +899,4 @@ no_option:
 no_socket:
 	return -1;
 }
-
-
 

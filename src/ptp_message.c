@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 
 #include "tstest.h"
+#include "timestamping.h"
 
 struct ptp_header ptp_header_template()
 {
@@ -201,4 +202,25 @@ union Message ptp_msg_create_type(struct ptp_header hdr, Octet type)
 		msg.signaling = create_signaling(hdr);
 	}
 	return msg;
+}
+
+struct Timestamp ns_to_be_timestamp(Integer64 ns)
+{
+	struct Timestamp ts;
+
+	Integer64 sec = ns / NS_PER_SEC;
+	Integer64 nsec = ns % NS_PER_SEC;
+	ts.seconds_lsb = htobe32(sec & 0xFFFFFFFF);
+	ts.seconds_msb = htobe16((sec >> 32) & 0xFFFF);
+	ts.nanoseconds = htobe32(nsec);
+
+	return ts;
+}
+
+Integer64 be_timestamp_to_ns(struct Timestamp ts)
+{
+	Integer64 sec = ((Integer64)be16toh(ts.seconds_msb) << 32) + be32toh(ts.seconds_lsb);
+	Integer64 nsec = be32toh(ts.nanoseconds);
+
+	return sec * NS_PER_SEC + nsec;
 }
