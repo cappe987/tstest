@@ -30,8 +30,6 @@
 #include "liblink.h"
 #include "timestamping.h"
 
-#define NS_PER_SEC 1000000000
-
 #ifndef CLOCK_TAI
 #define CLOCK_TAI                       11
 #endif
@@ -418,7 +416,7 @@ static int hwts_init(int fd, const char *device, int rx_filter,
 		cfg.rx_filter = orig_rx_filter = rx_filter;
 		err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
 		if (err < 0) {
-			printf("warning: driver rejected most general HWTSTAMP filter");
+			printf("warning: driver rejected most general HWTSTAMP filter\n");
 
 			init_ifreq(&ifreq, &cfg, device);
 			cfg.tx_type   = tx_type;
@@ -501,14 +499,14 @@ int sk_receive(int fd, void *buf, int buflen,
 		type  = cm->cmsg_type;
 		if (SOL_SOCKET == level && SO_TIMESTAMPING == type) {
 			if (cm->cmsg_len < sizeof(*ts) * 3) {
-				printf("warning: short SO_TIMESTAMPING message");
+				printf("warning: short SO_TIMESTAMPING message\n");
 				return -EMSGSIZE;
 			}
 			ts = (struct timespec *) CMSG_DATA(cm);
 		}
 		if (SOL_SOCKET == level && SO_TIMESTAMPNS == type) {
 			if (cm->cmsg_len < sizeof(*sw)) {
-				printf("warning: short SO_TIMESTAMPNS message");
+				printf("warning: short SO_TIMESTAMPNS message\n");
 				return -EMSGSIZE;
 			}
 			sw = (struct timespec *) CMSG_DATA(cm);
@@ -540,31 +538,30 @@ int sk_receive(int fd, void *buf, int buflen,
 	return cnt < 0 ? -errno : cnt;
 }
 
-static int raw_send(struct transport *t, struct fdarray *fda,
-		    enum transport_event event, int peer, void *buf, int len,
-		    struct address *addr, struct hw_timestamp *hwts)
+int raw_send(int fd, enum transport_event event, void *buf, int len,
+	     struct hw_timestamp *hwts)
 {
-	struct raw *raw = container_of(t, struct raw, t);
+	/*struct raw *raw = container_of(t, struct raw, t);*/
 	ssize_t cnt;
 	unsigned char pkt[1600]; //, *ptr = buf;
-	struct eth_hdr *hdr;
-	struct tagged_frame_header *tag_hdr;
-	int fd = -1;
+	/*struct eth_hdr *hdr;*/
+	/*struct tagged_frame_header *tag_hdr;*/
+	/*int fd = -1;*/
 
-	switch (event) {
-	case TRANS_GENERAL:
-		fd = fda->fd[FD_GENERAL];
-		break;
-	case TRANS_EVENT:
-	case TRANS_ONESTEP:
-	case TRANS_P2P1STEP:
-	case TRANS_DEFER_EVENT:
-		fd = fda->fd[FD_EVENT];
-		break;
-	}
+	/*switch (event) {*/
+	/*case TRANS_GENERAL:*/
+		/*fd = fda->fd[FD_GENERAL];*/
+		/*break;*/
+	/*case TRANS_EVENT:*/
+	/*case TRANS_ONESTEP:*/
+	/*case TRANS_P2P1STEP:*/
+	/*case TRANS_DEFER_EVENT:*/
+		/*fd = fda->fd[FD_EVENT];*/
+		/*break;*/
+	/*}*/
 
-	if (!addr)
-		addr = peer ? &raw->p2p_addr : &raw->ptp_addr;
+	/*if (!addr)*/
+		/*addr = peer ? &raw->p2p_addr : &raw->ptp_addr;*/
 
 	/* To send frames with 802.1Q tag. */
 	/*if (raw->egress_vlan_tagged) {*/
@@ -606,6 +603,7 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 		flags = SOF_TIMESTAMPING_TX_SOFTWARE |
 			SOF_TIMESTAMPING_RX_SOFTWARE |
 			SOF_TIMESTAMPING_SOFTWARE;
+		printf("software. Device %s\n", device);
 		break;
 	case TS_HARDWARE:
 	case TS_ONESTEP:
@@ -654,9 +652,11 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 		return -1;
 	}
 
-	err = hwts_init(fd, device, filter1, filter2, tx_type);
-	if (err && !(type == TS_SOFTWARE && errno == ENOTSUP))
-		return err;
+	if (type != TS_SOFTWARE) {
+		err = hwts_init(fd, device, filter1, filter2, tx_type);
+		if (err && !(type == TS_SOFTWARE && errno == ENOTSUP))
+			return err;
+	}
 
 	if (vclock >= 0)
 		flags |= SOF_TIMESTAMPING_BIND_PHC;
@@ -673,7 +673,7 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 	flags = 1;
 	if (setsockopt(fd, SOL_SOCKET, SO_SELECT_ERR_QUEUE,
 		       &flags, sizeof(flags)) < 0) {
-		printf("warning: %s: SO_SELECT_ERR_QUEUE: %m", device);
+		printf("warning: %s: SO_SELECT_ERR_QUEUE: %m\n", device);
 		sk_events = 0;
 		sk_revents = POLLERR;
 	}
@@ -684,6 +684,86 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 	/*}*/
 
 	return 0;
+}
+
+/*int socket_init_raw(char *interface)*/
+/*{*/
+	/*struct ifreq device;*/
+	/*int sock;*/
+
+	/*sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));*/
+	/*if (sock < 0) {*/
+		/*ERR_NO("socket");*/
+		/*return -EINVAL;*/
+	/*}*/
+
+	/*memset(&device, 0, sizeof(device));*/
+	/*strncpy(device.ifr_name, interface, sizeof(device.ifr_name));*/
+	/*if (ioctl(sock, SIOCGIFINDEX, &device) < 0) {*/
+		/*ERR_NO("getting interface index");*/
+		/*return -EINVAL;*/
+	/*}*/
+
+	/*return sock;*/
+/*}*/
+
+static int sk_interface_index(int fd, const char *name)
+{
+	struct ifreq ifreq;
+	int err;
+
+	memset(&ifreq, 0, sizeof(ifreq));
+	strncpy(ifreq.ifr_name, name, sizeof(ifreq.ifr_name) - 1);
+	err = ioctl(fd, SIOCGIFINDEX, &ifreq);
+	if (err < 0) {
+		ERR_NO("ioctl SIOCGIFINDEX failed: %m");
+		return err;
+	}
+	return ifreq.ifr_ifindex;
+}
+
+int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
+		unsigned char *p2p_dst_mac, int socket_priority)
+{
+	struct sockaddr_ll addr;
+	int fd, index;
+
+	fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+	if (fd < 0) {
+		ERR_NO("socket failed: %m");
+		goto no_socket;
+	}
+	index = sk_interface_index(fd, name);
+	if (index < 0)
+		goto no_option;
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sll_ifindex = index;
+	addr.sll_family = AF_PACKET;
+	addr.sll_protocol = htons(ETH_P_ALL);
+	if (bind(fd, (struct sockaddr *) &addr, sizeof(addr))) {
+		ERR_NO("bind failed: %m");
+		goto no_option;
+	}
+	if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, name, strlen(name))) {
+		ERR_NO("setsockopt SO_BINDTODEVICE failed: %m");
+		goto no_option;
+	}
+
+	if (socket_priority > 0 &&
+	    setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &socket_priority,
+		       sizeof(socket_priority))) {
+		ERR_NO("setsockopt SO_PRIORITY failed: %m");
+		goto no_option;
+	}
+	/*if (raw_configure(fd, event, index, ptp_dst_mac, p2p_dst_mac, 1))*/
+		/*goto no_option;*/
+
+	return fd;
+no_option:
+	close(fd);
+no_socket:
+	return -1;
 }
 
 

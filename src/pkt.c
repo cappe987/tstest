@@ -23,6 +23,7 @@
 #include <linux/net_tstamp.h>
 
 #include "tstest.h"
+#include "liblink.h"
 
 #ifndef SO_TIMESTAMPING
 # define SO_TIMESTAMPING         37
@@ -78,20 +79,6 @@ Options:\n\
         \n");
 }
 
-#define MAC_LEN  6
-int str2mac(const char *s, unsigned char mac[MAC_LEN])
-{
-	unsigned char buf[MAC_LEN];
-	int c;
-	c = sscanf(s, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-		   &buf[0], &buf[1], &buf[2], &buf[3], &buf[4], &buf[5]);
-	if (c != MAC_LEN) {
-		return -1;
-	}
-	memcpy(mac, buf, MAC_LEN);
-	return 0;
-}
-
 int run_pkt_mode(int argc, char **argv)
 {
 	int so_timestamping_flags = 0;
@@ -102,7 +89,7 @@ int run_pkt_mode(int argc, char **argv)
 	struct hwtstamp_config hwconfig, hwconfig_requested;
 	struct sockaddr_ll addr;
 	int val;
-	Octet mac[MAC_LEN]; // = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	Octet mac[ETH_ALEN]; // = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	socklen_t len;
 	unsigned int length = 0;
 	int c;

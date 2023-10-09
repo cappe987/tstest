@@ -19,8 +19,8 @@ struct ptp_header ptp_header_template()
 	hdr.messageLength = htons(0x2c);
 	hdr.domainNumber = 0x00;
 	hdr.flagField[0] = 0x02;
-	memcpy(&hdr.clockIdentity, "\xbb\xbb\xbb\xff\xfe\xbb\xbb\xbb", 6);
-	hdr.sourcePort = htons(0x1);
+	memcpy(&hdr.sourcePortIdentity.clockIdentity.id, "\xbb\xbb\xbb\xff\xfe\xbb\xbb\xbb", 6);
+	hdr.sourcePortIdentity.portNumber = htons(0x1);
 	ptp_set_seqId(&hdr, 0);
 
 	return hdr;
@@ -111,7 +111,7 @@ int str2ptp_type(const char *str)
 	else if (strcmp(str, "delay_resp") == 0)
 		return DELAY_RESP;
 	else if (strcmp(str, "pdelay_resp_fup") == 0)
-		return PDELAY_RESP_FOLLOW_UP;
+		return PDELAY_RESP_FUP;
 	else if (strcmp(str, "announce") == 0)
 		return ANNOUNCE;
 	else if (strcmp(str, "signaling") == 0)
@@ -137,7 +137,7 @@ int ptp_type2controlField(int type)
 		return 0x4;
 	case PDELAY_REQ:
 	case PDELAY_RESP:
-	case PDELAY_RESP_FOLLOW_UP:
+	case PDELAY_RESP_FUP:
 	case ANNOUNCE:
 	case SIGNALING:
 		return 0x5;
@@ -163,7 +163,7 @@ int ptp_msg_get_size(int type)
 		return sizeof(struct pdelay_req_msg);
 	case PDELAY_RESP:
 		return sizeof(struct pdelay_resp_msg);
-	case PDELAY_RESP_FOLLOW_UP:
+	case PDELAY_RESP_FUP:
 		return sizeof(struct pdelay_resp_fup_msg);
 	case ANNOUNCE:
 		return sizeof(struct announce_msg);
@@ -193,7 +193,7 @@ union Message ptp_msg_create_type(struct ptp_header hdr, Octet type)
 		msg.pdelay_req = create_pdelay_req(hdr);
 	case PDELAY_RESP:
 		msg.pdelay_resp = create_pdelay_resp(hdr);
-	case PDELAY_RESP_FOLLOW_UP:
+	case PDELAY_RESP_FUP:
 		msg.pdelay_resp_fup = create_pdelay_resp_fup(hdr);
 	case ANNOUNCE:
 		msg.announce = create_announce(hdr);

@@ -30,7 +30,7 @@ typedef uint8_t   Octet;
 #define PDELAY_RESP           0x3
 #define FOLLOW_UP             0x8
 #define DELAY_RESP            0x9
-#define PDELAY_RESP_FOLLOW_UP 0xA
+#define PDELAY_RESP_FUP       0xA
 #define ANNOUNCE              0xB
 #define SIGNALING             0xC
 #define MANAGEMENT            0xD
@@ -103,9 +103,9 @@ struct ptp_header {
 	Octet               flagField[2];
 	Integer64           correction;
 	UInteger32          reserved2;
-	//struct PortIdentity sourcePortIdentity;
-	Octet               clockIdentity[8];
-	UInteger16          sourcePort;
+	struct PortIdentity sourcePortIdentity;
+	//Octet               clockIdentity[8];
+	//UInteger16          sourcePort;
 	UInteger16          sequenceId;
 	UInteger8           control;
 	Integer8            logMessageInterval;
@@ -230,6 +230,7 @@ static void ptp_set_smac(struct ptp_header *hdr, Octet smac[ETH_ALEN]) {
 static void ptp_set_type(struct ptp_header *hdr, Octet type) {
 	hdr->tsmt = (hdr->tsmt & 0xF0) | (0xF & type);
 	hdr->control = ptp_type2controlField(type);
+	hdr->messageLength = htons(ptp_msg_get_size(type) - 14);
 }
 
 static void ptp_set_transport_specific(struct ptp_header *hdr, Octet ts) {
@@ -241,7 +242,7 @@ static void ptp_set_version(struct ptp_header *hdr, Octet version) {
 }
 
 static void ptp_set_srcport(struct ptp_header *hdr, Octet srcport) {
-	hdr->sourcePort = srcport;
+	hdr->sourcePortIdentity.portNumber = srcport;
 }
 
 static void ptp_set_seqId(struct ptp_header *hdr, UInteger16 seq) {

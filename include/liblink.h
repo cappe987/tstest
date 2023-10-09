@@ -6,7 +6,10 @@
 
 #include <net/if.h>
 
-#define ERR(str, ...) fprintf(stderr, "Error: "str, ##__VA_ARGS__)
+#define ERR(str, ...) fprintf(stderr, "Error: "str"\n", ##__VA_ARGS__)
+#define ERR_NO(str, ...) fprintf(stderr, "Error: "str": %s\n", ##__VA_ARGS__, strerror(errno))
+
+	//printf("%s: %s\n", error, strerror(errno));
 
 #define _DEBUG(file, fmt, ...) do { \
 	if (debugen) { \
@@ -24,6 +27,7 @@ int get_smac(int sockfd, char ifname[IFNAMSIZ], unsigned char smac[6]);
 int get_iface_mac(char ifname[IFNAMSIZ], unsigned char mac_address[ETH_ALEN]);
 void set_dmac(unsigned char *frame, unsigned char mac[ETH_ALEN]);
 void set_smac(unsigned char *frame, unsigned char mac[ETH_ALEN]);
+int str2mac(const char *s, unsigned char mac[ETH_ALEN]);
 
 
 #endif /* __LIBLINK_H__ */
