@@ -8,6 +8,17 @@
 
 #define ERR(str, ...) fprintf(stderr, "Error: "str, ##__VA_ARGS__)
 
+#define _DEBUG(file, fmt, ...) do { \
+	if (debugen) { \
+		fprintf(file, " " fmt, \
+		##__VA_ARGS__); \
+	} else { \
+		; \
+	} \
+} while (0)
+
+#define DEBUG(...) _DEBUG(stderr, __VA_ARGS__)
+
 int get_iface_index(int sockfd, char iface[IFNAMSIZ]);
 int get_smac(int sockfd, char ifname[IFNAMSIZ], unsigned char smac[6]);
 int get_iface_mac(char ifname[IFNAMSIZ], unsigned char mac_address[ETH_ALEN]);

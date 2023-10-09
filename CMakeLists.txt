@@ -19,7 +19,7 @@ project(tstest VERSION 1.0)
 
 # ---- BUILD ----
 add_executable(tstest)
-target_sources(tstest PRIVATE src/liblink.c src/ptp_message.c src/extts.c src/pkt.c src/tstest.c)
+target_sources(tstest PRIVATE src/liblink.c src/timestamping.c src/ptp_message.c src/extts.c src/pkt.c src/tstest.c src/delay.c)
 
 target_include_directories(tstest PUBLIC ${PROJECT_INCLUDES})
 target_link_libraries(tstest PUBLIC)
