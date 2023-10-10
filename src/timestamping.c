@@ -606,7 +606,6 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 		flags = SOF_TIMESTAMPING_TX_SOFTWARE |
 			SOF_TIMESTAMPING_RX_SOFTWARE |
 			SOF_TIMESTAMPING_SOFTWARE;
-		printf("software. Device %s\n", device);
 		break;
 	case TS_HARDWARE:
 	case TS_ONESTEP:

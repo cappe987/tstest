@@ -44,7 +44,7 @@ void print_ts(char *text, Integer64 ns)
 	printf("%s: %ld.%ld\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
 }
 
-int run_delay_client(int e_sock, int g_sock, enum timestamp_type type)
+int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count)
 {
 	struct hw_timestamp hwts = { 0 };
 	unsigned char pkt[1600];
@@ -68,7 +68,7 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type)
 	message = ptp_msg_create_type(hdr, PDELAY_REQ);
 	len = ptp_msg_get_size(PDELAY_REQ);
 
-	while (1) {
+	while (count != 0) {
 		err = raw_send(e_sock, TRANS_EVENT, &message, len, &hwts);
 		if (err < 0) {
 			return -err;
@@ -97,7 +97,9 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type)
 		Integer64 pdelay = ((t4 - t1) - (t3 - t2) - pdelay_resp_corr - pdelay_resp_fup_corr)/2;
 		printf("Pdelay %ld\n", pdelay);
 
-		usleep(1000000);
+		count--;
+		if (count != 0)
+			usleep(1000000);
 	}
 	return 0;
 }
@@ -173,6 +175,7 @@ int run_delay_mode(int argc, char **argv)
 	int err, e_sock, g_sock;
 	int client_mode;
 	char *interface;
+	int count = -1;
 
 	type = TS_SOFTWARE;
 
@@ -195,6 +198,10 @@ int run_delay_mode(int argc, char **argv)
 		interface = argv[3];
 	}
 
+	if (argc > 5 && strcmp(argv[4], "-c") == 0) {
+		count = strtol(argv[5], NULL, 10);
+	}
+
 	if (!interface) {
 		fprintf(stderr, "Error: missing input interface\n");
 		return EINVAL;
@@ -213,7 +220,7 @@ int run_delay_mode(int argc, char **argv)
 		return -err;
 
 	if (client_mode) {
-		return run_delay_client(e_sock, g_sock, type);
+		return run_delay_client(e_sock, g_sock, type, count);
 	} else {
 		return run_delay_server(e_sock, g_sock, type);
 	}

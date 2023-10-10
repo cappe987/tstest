@@ -32,6 +32,11 @@ install(TARGETS tstest
 	RUNTIME DESTINATION bin)
 #m_install(tstest)
 
+add_custom_target(test
+	COMMAND
+	unshare -r -n ${PROJECT_SOURCE_DIR}/test/test.sh ${PROJECT_BINARY_DIR}/tstest $(t)
+	DEPENDS ${PROJECT_BINARY_DIR}/tstest
+	)
 
 # ============= Configure ===============
 configure_file(include/version.h.in include/version.h)
