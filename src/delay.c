@@ -12,11 +12,6 @@
 #include "tstest.h"
 #include "liblink.h"
 
-void print_ts(char *text, Integer64 ns)
-{
-	printf("%s: %ld.%ld\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
-}
-
 /* TODO:
  * - Clean up and separate server and client
  * - Arguments for domain, version, etc.
@@ -25,20 +20,41 @@ void print_ts(char *text, Integer64 ns)
  * - Implement E2E
  */
 
-int run_delay_mode(int argc, char **argv)
+void delay_help()
 {
+	fprintf(stderr, "\n--- TSTest Delay ---\n\n");
+	fprintf(stderr, "Measures PTP path delay\n\n\
+Usage:\n\
+        tstest delay <server|client> [options]\n\n\
+Options:\n\
+        -i <interface> \n\
+        -o Use one-step P2P \n\
+        -E Use E2E delay \n\
+        -c <frame counts>. Client only, performs N measurements\n\
+        -D Set domain number\n\
+        -v Set PTP version number\n\
+        -d Enable debug output\n\
+        -h help\n\
+        --delay_filter <moving_median|moving_average>. Default: moving_median.\n\
+        \n");
+}
+
+void print_ts(char *text, Integer64 ns)
+{
+	printf("%s: %ld.%ld\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
+}
+
+int run_delay_client(int e_sock, int g_sock, enum timestamp_type type)
+{
+	struct hw_timestamp hwts = { 0 };
+	unsigned char pkt[1600];
 	struct ptp_header hdr;
 	union Message message;
 	Octet mac[ETH_ALEN];
-	char *interface;
 	int err;
-	unsigned char pkt[1600];
+	int len;
 
-	if (argc <= 0)
-		return EINVAL;
-
-	interface = argv[1];
-
+	hwts.type = type;
 	str2mac("ff:ff:ff:ff:ff:ff", mac);
 
 	hdr = ptp_header_template();
@@ -49,64 +65,50 @@ int run_delay_mode(int argc, char **argv)
 	ptp_set_version(&hdr, 2 | (1 << 4));
 	ptp_set_domain(&hdr, 0x0);
 
-	if (!interface) {
-		fprintf(stderr, "Error: missing input interface\n");
-		return EINVAL;
-	}
-
 	message = ptp_msg_create_type(hdr, PDELAY_REQ);
-	int len = ptp_msg_get_size(PDELAY_REQ);
+	len = ptp_msg_get_size(PDELAY_REQ);
 
-
-	int e_sock = open_socket(interface, 1, ptp_dst_mac, p2p_dst_mac, 0);
-	if (e_sock < 0)
-		return e_sock;
-	int g_sock = open_socket(interface, 0, ptp_dst_mac, p2p_dst_mac, 0);
-	if (g_sock < 0)
-		return g_sock;
-
-	struct hw_timestamp hwts = { 0 };
-	hwts.type = TS_SOFTWARE;
-	err = sk_timestamping_init(e_sock, interface, hwts.type,
-				   TRANS_IEEE_802_3, -1);
-	if (err < 0)
-		return -err;
-
-	if (argc > 2 && strcmp(argv[2], "client") == 0) {
-		while (1) {
-			err = raw_send(e_sock, TRANS_EVENT, &message, len, &hwts);
-			if (err < 0) {
-				return -err;
-			}
-			Integer64 t1 = hwts.ts.ns;
-			message.pdelay_req.hdr.sequenceId = htons(ntohs(message.pdelay_req.hdr.sequenceId)+1);
-			err = sk_receive(e_sock, pkt, 1600, NULL, &hwts, 0);
-			if (err < 0) {
-				return -err;
-			}
-			struct ptp_header *hdr = (struct ptp_header*) pkt;
-			union Message *msg = (union Message*) pkt;
-			Integer64 t2 = be_timestamp_to_ns(msg->pdelay_resp.requestReceiptTimestamp);
-			Integer64 t4 = hwts.ts.ns;
-			Integer64 pdelay_resp_corr = be64toh(hdr->correction) >> 16;
-
-			err = sk_receive(g_sock, pkt, 1600, NULL, &hwts, 0);
-			if (err < 0) {
-				return -err;
-			}
-			hdr = (struct ptp_header*) pkt;
-			/*printf("Type %d\n", hdr->tsmt & 0xf);*/
-
-			Integer64 t3 = be_timestamp_to_ns(msg->pdelay_resp_fup.responseOriginTimestamp);
-			Integer64 pdelay_resp_fup_corr = be64toh(hdr->correction) >> 16;
-			Integer64 pdelay = ((t4 - t1) - (t3 - t2))/2;
-			printf("Pdelay %ld\n", pdelay);
-
-			usleep(1000000);
+	while (1) {
+		err = raw_send(e_sock, TRANS_EVENT, &message, len, &hwts);
+		if (err < 0) {
+			return -err;
 		}
-		return 0;
-	}
+		Integer64 t1 = hwts.ts.ns;
+		message.pdelay_req.hdr.sequenceId = htons(ntohs(message.pdelay_req.hdr.sequenceId)+1);
+		err = sk_receive(e_sock, pkt, 1600, NULL, &hwts, 0);
+		if (err < 0) {
+			return -err;
+		}
+		struct ptp_header *hdr = (struct ptp_header*) pkt;
+		union Message *msg = (union Message*) pkt;
+		Integer64 t2 = be_timestamp_to_ns(msg->pdelay_resp.requestReceiptTimestamp);
+		Integer64 t4 = hwts.ts.ns;
+		Integer64 pdelay_resp_corr = be64toh(hdr->correction) >> 16;
 
+		err = sk_receive(g_sock, pkt, 1600, NULL, &hwts, 0);
+		if (err < 0) {
+			return -err;
+		}
+		hdr = (struct ptp_header*) pkt;
+		/*printf("Type %d\n", hdr->tsmt & 0xf);*/
+
+		Integer64 t3 = be_timestamp_to_ns(msg->pdelay_resp_fup.responseOriginTimestamp);
+		Integer64 pdelay_resp_fup_corr = be64toh(hdr->correction) >> 16;
+		Integer64 pdelay = ((t4 - t1) - (t3 - t2) - pdelay_resp_corr - pdelay_resp_fup_corr)/2;
+		printf("Pdelay %ld\n", pdelay);
+
+		usleep(1000000);
+	}
+	return 0;
+}
+
+int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
+{
+	struct hw_timestamp hwts = { 0 };
+	unsigned char pkt[1600];
+	int err;
+
+	hwts.type = type;
 
 	while (1) {
 		err = sk_receive(e_sock, pkt, 1600, NULL, &hwts, 0);
@@ -161,6 +163,59 @@ int run_delay_mode(int argc, char **argv)
 			return -err;
 		}
 		/*printf("Sent response\n");*/
+	}
+
+}
+
+int run_delay_mode(int argc, char **argv)
+{
+	enum timestamp_type type;
+	int err, e_sock, g_sock;
+	int client_mode;
+	char *interface;
+
+	type = TS_SOFTWARE;
+
+	if (argc <= 1) {
+		delay_help();
+		return EINVAL;
+	}
+
+	if (strcmp(argv[1], "client") == 0) {
+		client_mode = 1;
+	} else if (strcmp(argv[1], "server") == 0) {
+		client_mode = 0;
+	} else {
+		ERR("expected 'client' or 'server' mode");
+		return EINVAL;
+	}
+
+	// FIXME: Do proper argument parsing
+	if (argc > 3 && strcmp(argv[2], "-i") == 0) {
+		interface = argv[3];
+	}
+
+	if (!interface) {
+		fprintf(stderr, "Error: missing input interface\n");
+		return EINVAL;
+	}
+
+	e_sock = open_socket(interface, 1, ptp_dst_mac, p2p_dst_mac, 0);
+	if (e_sock < 0)
+		return e_sock;
+	g_sock = open_socket(interface, 0, ptp_dst_mac, p2p_dst_mac, 0);
+	if (g_sock < 0)
+		return g_sock;
+
+	err = sk_timestamping_init(e_sock, interface, type,
+				   TRANS_IEEE_802_3, -1);
+	if (err < 0)
+		return -err;
+
+	if (client_mode) {
+		return run_delay_client(e_sock, g_sock, type);
+	} else {
+		return run_delay_server(e_sock, g_sock, type);
 	}
 
 	return 0;
