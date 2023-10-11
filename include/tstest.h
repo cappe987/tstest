@@ -185,6 +185,11 @@ struct management_msg {
 } PACKED;
 
 union Message {
+	/* Keep the ptp_header here as well so we can easily access that as
+	 * well, since it is always in the same position no matter what type
+	 * the union is.
+	 */
+	struct ptp_header          hdr;
 	struct sync_msg            sync;
 	struct announce_msg        announce;
 	struct delay_req_msg       delay_req;
@@ -208,6 +213,7 @@ int run_delay_mode(int argc, char **argv);
 
 /* ptp_message.c */
 int str2ptp_type(const char *str);
+char* ptp_type2str(int type);
 int ptp_type2controlField(int type);
 struct ptp_header ptp_header_template();
 int ptp_msg_get_size(int type);
@@ -249,6 +255,10 @@ static void ptp_set_srcport(struct ptp_header *hdr, Octet srcport) {
 
 static void ptp_set_seqId(struct ptp_header *hdr, UInteger16 seq) {
 	hdr->sequenceId = htons(seq);
+}
+
+static int ptp_get_seqId(struct ptp_header *hdr) {
+	return ntohs(hdr->sequenceId);
 }
 
 static void ptp_set_domain(struct ptp_header *hdr, UInteger8 domain) {
