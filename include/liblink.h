@@ -8,6 +8,7 @@
 
 #define ERR(str, ...) fprintf(stderr, "Error: "str"\n", ##__VA_ARGS__)
 #define ERR_NO(str, ...) fprintf(stderr, "Error: "str": %s\n", ##__VA_ARGS__, strerror(errno))
+#define WARN(str, ...) fprintf(stderr, "Warn: "str"\n", ##__VA_ARGS__)
 
 	//printf("%s: %s\n", error, strerror(errno));
 
