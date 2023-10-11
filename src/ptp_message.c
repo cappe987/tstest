@@ -123,20 +123,31 @@ int str2ptp_type(const char *str)
 		return -1;
 }
 
-char* ptp_type2str(int type)
+char *ptp_type2str(int type)
 {
 	switch (type) {
-		case SYNC:            return "sync";
-		case DELAY_REQ:       return "delay_req";
-		case FOLLOW_UP:       return "follow_up";
-		case DELAY_RESP:      return "delay_resp";
-		case MANAGEMENT:      return "management";
-		case PDELAY_REQ:      return "pdelay_req";
-		case PDELAY_RESP:     return "pdelay_resp";
-		case PDELAY_RESP_FUP: return "pdelay_resp_fup";
-		case ANNOUNCE:        return "announce";
-		case SIGNALING:       return "signaling";
-		default: return "INVALID";
+	case SYNC:
+		return "sync";
+	case DELAY_REQ:
+		return "delay_req";
+	case FOLLOW_UP:
+		return "follow_up";
+	case DELAY_RESP:
+		return "delay_resp";
+	case MANAGEMENT:
+		return "management";
+	case PDELAY_REQ:
+		return "pdelay_req";
+	case PDELAY_RESP:
+		return "pdelay_resp";
+	case PDELAY_RESP_FUP:
+		return "pdelay_resp_fup";
+	case ANNOUNCE:
+		return "announce";
+	case SIGNALING:
+		return "signaling";
+	default:
+		return "INVALID";
 	}
 }
 

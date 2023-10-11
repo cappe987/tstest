@@ -32,18 +32,17 @@ int tstest_help()
 
 int main(int argc, char **argv)
 {
-
 	if (argc < 2) {
 		tstest_help();
 		return -EINVAL;
 	}
 
 	if (strcmp(argv[1], "pkt") == 0)
-		return run_pkt_mode(argc-1, &argv[1]);
+		return run_pkt_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "extts") == 0)
-		return run_extts_mode(argc-1, &argv[1]);
+		return run_extts_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "delay") == 0)
-		return run_delay_mode(argc-1, &argv[1]);
+		return run_delay_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "version") == 0)
 		return tstest_version();
 	else

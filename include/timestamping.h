@@ -34,15 +34,15 @@ typedef struct {
 
 #ifndef HWTSTAMP_FLAG_BONDED_PHC_INDEX
 enum {
-	HWTSTAMP_FLAG_BONDED_PHC_INDEX = (1<<0),
+	HWTSTAMP_FLAG_BONDED_PHC_INDEX = (1 << 0),
 };
 #endif
 
 /* Defines the available Hardware time-stamp setting modes. */
 enum hwts_filter_mode {
-	HWTS_FILTER_NORMAL,    /* set hardware filters in normal way */
-	HWTS_FILTER_CHECK,     /* check filters but do not change them */
-	HWTS_FILTER_FULL,      /* Use time-stamp on all received packets */
+	HWTS_FILTER_NORMAL, /* set hardware filters in normal way */
+	HWTS_FILTER_CHECK, /* check filters but do not change them */
+	HWTS_FILTER_FULL, /* Use time-stamp on all received packets */
 };
 
 /* Values from networkProtocol enumeration 7.4.1 Table 3 */
@@ -95,17 +95,16 @@ struct address {
 	};
 };
 
-static unsigned char ptp_dst_mac[] = {0x01, 0x1B, 0x19, 0x00, 0x00, 0x00};
-static unsigned char p2p_dst_mac[] = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x0E};
+static unsigned char ptp_dst_mac[] = { 0x01, 0x1B, 0x19, 0x00, 0x00, 0x00 };
+static unsigned char p2p_dst_mac[] = { 0x01, 0x80, 0xC2, 0x00, 0x00, 0x0E };
 
-int sk_receive(int fd, void *buf, int buflen,
-	       struct address *addr, struct hw_timestamp *hwts, int flags);
-int raw_send(int fd, enum transport_event event, void *buf, int len,
-	     struct hw_timestamp *hwts);
+int sk_receive(int fd, void *buf, int buflen, struct address *addr, struct hw_timestamp *hwts,
+	       int flags);
+int raw_send(int fd, enum transport_event event, void *buf, int len, struct hw_timestamp *hwts);
 int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 			 enum transport_type transport, int vclock);
 //int socket_init_raw(char *interface);
-int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
-		unsigned char *p2p_dst_mac, int socket_priority);
+int open_socket(const char *name, int event, unsigned char *ptp_dst_mac, unsigned char *p2p_dst_mac,
+		int socket_priority);
 
 #endif /* __TSTEST_TIMESTAMPING_H__ */

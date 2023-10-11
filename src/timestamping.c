@@ -34,12 +34,12 @@
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 #ifndef CLOCK_TAI
-#define CLOCK_TAI                       11
+#define CLOCK_TAI 11
 #endif
 
 #ifndef SCM_TXTIME
-#define SO_TXTIME               61
-#define SCM_TXTIME              SO_TXTIME
+#define SO_TXTIME 61
+#define SCM_TXTIME SO_TXTIME
 #endif
 
 /* ptp4l --tx_timestamp_timeout */
@@ -69,8 +69,8 @@ static uint64_t gettime_ns(void)
 static int do_send_one(int fdt, int length)
 {
 	char control[CMSG_SPACE(sizeof(uint64_t))];
-	struct msghdr msg = {0};
-	struct iovec iov = {0};
+	struct msghdr msg = { 0 };
+	struct iovec iov = { 0 };
 	struct cmsghdr *cm;
 	uint64_t tdeliver;
 	int ret;
@@ -88,17 +88,17 @@ static int do_send_one(int fdt, int length)
 	msg.msg_iovlen = 1;
 
 	/*if (delay_us >= 0) {*/
-		/*memset(control, 0, sizeof(control));*/
-		/*msg.msg_control = &control;*/
-		/*msg.msg_controllen = sizeof(control);*/
+	/*memset(control, 0, sizeof(control));*/
+	/*msg.msg_control = &control;*/
+	/*msg.msg_controllen = sizeof(control);*/
 
-		/*tdeliver = gettime_ns() + delay_us * 1000;*/
-		/*DEBUG("set TXTIME is %ld\n", tdeliver);*/
-		/*cm = CMSG_FIRSTHDR(&msg);*/
-		/*cm->cmsg_level = SOL_SOCKET;*/
-		/*cm->cmsg_type = SCM_TXTIME;*/
-		/*cm->cmsg_len = CMSG_LEN(sizeof(tdeliver));*/
-		/*memcpy(CMSG_DATA(cm), &tdeliver, sizeof(tdeliver));*/
+	/*tdeliver = gettime_ns() + delay_us * 1000;*/
+	/*DEBUG("set TXTIME is %ld\n", tdeliver);*/
+	/*cm = CMSG_FIRSTHDR(&msg);*/
+	/*cm->cmsg_level = SOL_SOCKET;*/
+	/*cm->cmsg_type = SCM_TXTIME;*/
+	/*cm->cmsg_len = CMSG_LEN(sizeof(tdeliver));*/
+	/*memcpy(CMSG_DATA(cm), &tdeliver, sizeof(tdeliver));*/
 	/*}*/
 
 	ret = sendmsg(fdt, &msg, 0);
@@ -118,14 +118,14 @@ void sendpacket(int sock, unsigned char *mac)
 	/*int i;*/
 
 	/*for (i = 0; i < MAC_LEN; i++)*/
-		/*sync_packet[6 + i] = mac[i];*/
+	/*sync_packet[6 + i] = mac[i];*/
 	/*sync_packet[17] = length >> 8;*/
 	/*sync_packet[18] = (char)(length & 0x00ff);*/
 
 	gettimeofday(&nowb, 0);
 
 	/*if (length < sizeof(sync_packet))*/
-		/*res = send(sock, sync_packet, sizeof(sync_packet), 0);*/
+	/*res = send(sock, sync_packet, sizeof(sync_packet), 0);*/
 	/*else {*/
 #if 0
 		char *buf = (char *)malloc(length);
@@ -142,17 +142,14 @@ void sendpacket(int sock, unsigned char *mac)
 		DEBUG("%s: %s\n", "send", strerror(errno));
 	} else {
 		if (debugen)
-			DEBUG("%ld.%06ld - %ld.%06ld: sent %d bytes\n",
-			      (long)nowb.tv_sec, (long)nowb.tv_usec,
-			      (long)now.tv_sec, (long)now.tv_usec,
-			      res);
+			DEBUG("%ld.%06ld - %ld.%06ld: sent %d bytes\n", (long)nowb.tv_sec,
+			      (long)nowb.tv_usec, (long)now.tv_sec, (long)now.tv_usec, res);
 		else
 			printf("Sent %d bytes\n", res);
 	}
 }
 
-static void printpacket(struct msghdr *msg, int res,
-			int recvmsg_flags)
+static void printpacket(struct msghdr *msg, int res, int recvmsg_flags)
 {
 	struct sockaddr_in *from_addr = (struct sockaddr_in *)msg->msg_name;
 	struct cmsghdr *cmsg;
@@ -161,46 +158,36 @@ static void printpacket(struct msghdr *msg, int res,
 	if (debugen) {
 		gettimeofday(&now, 0);
 		DEBUG("%ld.%06ld: received %s data, %d bytes from %s, %zu bytes control messages\n",
-		       (long)now.tv_sec, (long)now.tv_usec,
-		       (recvmsg_flags & MSG_ERRQUEUE) ? "error" : "regular",
-		       res,
-		       inet_ntoa(from_addr->sin_addr),
-		       msg->msg_controllen);
+		      (long)now.tv_sec, (long)now.tv_usec,
+		      (recvmsg_flags & MSG_ERRQUEUE) ? "error" : "regular", res,
+		      inet_ntoa(from_addr->sin_addr), msg->msg_controllen);
 	}
 
-	for (cmsg = CMSG_FIRSTHDR(msg);
-	     cmsg;
-	     cmsg = CMSG_NXTHDR(msg, cmsg)) {
+	for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
 		DEBUG("   cmsg len %zu: ", cmsg->cmsg_len);
 		switch (cmsg->cmsg_level) {
 		case SOL_SOCKET:
 			DEBUG("SOL_SOCKET ");
 			switch (cmsg->cmsg_type) {
 			case SO_TIMESTAMP: {
-				struct timeval *stamp =
-					(struct timeval *)CMSG_DATA(cmsg);
-				DEBUG("SO_TIMESTAMP %ld.%06ld",
-				       (long)stamp->tv_sec,
-				       (long)stamp->tv_usec);
+				struct timeval *stamp = (struct timeval *)CMSG_DATA(cmsg);
+				DEBUG("SO_TIMESTAMP %ld.%06ld", (long)stamp->tv_sec,
+				      (long)stamp->tv_usec);
 				break;
 			}
 			case SO_TIMESTAMPNS: {
-				struct timespec *stamp =
-					(struct timespec *)CMSG_DATA(cmsg);
-				DEBUG("SO_TIMESTAMPNS %ld.%09ld",
-				       (long)stamp->tv_sec,
-				       (long)stamp->tv_nsec);
+				struct timespec *stamp = (struct timespec *)CMSG_DATA(cmsg);
+				DEBUG("SO_TIMESTAMPNS %ld.%09ld", (long)stamp->tv_sec,
+				      (long)stamp->tv_nsec);
 				break;
 			}
 			case SO_TIMESTAMPING: {
-				struct timespec *stamp =
-					(struct timespec *)CMSG_DATA(cmsg);
+				struct timespec *stamp = (struct timespec *)CMSG_DATA(cmsg);
 				DEBUG("SO_TIMESTAMPING ");
 				stamp++;
 				/* skip deprecated HW transformed */
 				stamp++;
-				printf("  HW raw %ld.%09ld\n",
-				       (long)stamp->tv_sec,
+				printf("  HW raw %ld.%09ld\n", (long)stamp->tv_sec,
 				       (long)stamp->tv_nsec);
 				if (recvmsg_flags & MSG_ERRQUEUE) {
 					/*if (!fully_send) {*/
@@ -211,13 +198,13 @@ static void printpacket(struct msghdr *msg, int res,
 						txcount--;
 					}
 					/*} else {*/
-						/*if (nonstop_flag) {*/
-							/*txcount++;*/
-						/*} else {*/
-							/*txcount--;*/
-							/*if (!txcount)*/
-								/*txcount_flag = 1;*/
-						/*}*/
+					/*if (nonstop_flag) {*/
+					/*txcount++;*/
+					/*} else {*/
+					/*txcount--;*/
+					/*if (!txcount)*/
+					/*txcount_flag = 1;*/
+					/*}*/
 					/*}*/
 					DEBUG("tx counter %d\n", txcount);
 				}
@@ -235,22 +222,20 @@ static void printpacket(struct msghdr *msg, int res,
 				struct sock_extended_err *err =
 					(struct sock_extended_err *)CMSG_DATA(cmsg);
 				DEBUG("IP_RECVERR ee_errno '%s' ee_origin %d => %s",
-					strerror(err->ee_errno),
-					err->ee_origin,
+				      strerror(err->ee_errno), err->ee_origin,
 #ifdef SO_EE_ORIGIN_TIMESTAMPING
-					err->ee_origin == SO_EE_ORIGIN_TIMESTAMPING ?
-					"bounced packet" : "unexpected origin"
+				      err->ee_origin == SO_EE_ORIGIN_TIMESTAMPING ?
+					      "bounced packet" :
+					      "unexpected origin"
 #else
-					"probably SO_EE_ORIGIN_TIMESTAMPING"
+				      "probably SO_EE_ORIGIN_TIMESTAMPING"
 #endif
-					);
+				);
 				break;
 			}
 			case IP_PKTINFO: {
-				struct in_pktinfo *pktinfo =
-					(struct in_pktinfo *)CMSG_DATA(cmsg);
-				DEBUG("IP_PKTINFO interface index %u",
-					pktinfo->ipi_ifindex);
+				struct in_pktinfo *pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
+				DEBUG("IP_PKTINFO interface index %u", pktinfo->ipi_ifindex);
 				break;
 			}
 			default:
@@ -259,9 +244,7 @@ static void printpacket(struct msghdr *msg, int res,
 			}
 			break;
 		default:
-			DEBUG("level %d type %d",
-				cmsg->cmsg_level,
-				cmsg->cmsg_type);
+			DEBUG("level %d type %d", cmsg->cmsg_level, cmsg->cmsg_type);
 			break;
 		}
 		DEBUG("\n");
@@ -292,10 +275,7 @@ static void recvpacket(int sock, int recvmsg_flags)
 
 	res = recvmsg(sock, &msg, recvmsg_flags | MSG_DONTWAIT);
 	if (res < 0)
-		DEBUG("%s %s: %s\n",
-		       "recvmsg",
-		       "regular",
-		       strerror(errno));
+		DEBUG("%s %s: %s\n", "recvmsg", "regular", strerror(errno));
 	else
 		printpacket(&msg, res, recvmsg_flags);
 }
@@ -323,35 +303,27 @@ void rcv_pkt(int sock)
 void setsockopt_txtime(int fd)
 {
 	struct sock_txtime so_txtime_val = {
-			.clockid =  CLOCK_TAI,
-			/*.flags = SOF_TXTIME_DEADLINE_MODE | SOF_TXTIME_REPORT_ERRORS */
-			.flags = SOF_TXTIME_REPORT_ERRORS
-			};
+		.clockid = CLOCK_TAI,
+		/*.flags = SOF_TXTIME_DEADLINE_MODE | SOF_TXTIME_REPORT_ERRORS */
+		.flags = SOF_TXTIME_REPORT_ERRORS
+	};
 	struct sock_txtime so_txtime_val_read = { 0 };
 	socklen_t vallen = sizeof(so_txtime_val);
 
 	/*if (send_now)*/
-		/*so_txtime_val.flags |= SOF_TXTIME_DEADLINE_MODE;*/
+	/*so_txtime_val.flags |= SOF_TXTIME_DEADLINE_MODE;*/
 
-	if (setsockopt(fd, SOL_SOCKET, SO_TXTIME,
-		       &so_txtime_val, sizeof(so_txtime_val)))
+	if (setsockopt(fd, SOL_SOCKET, SO_TXTIME, &so_txtime_val, sizeof(so_txtime_val)))
 		printf("setsockopt txtime error!\n");
 
-	if (getsockopt(fd, SOL_SOCKET, SO_TXTIME,
-		       &so_txtime_val_read, &vallen))
+	if (getsockopt(fd, SOL_SOCKET, SO_TXTIME, &so_txtime_val_read, &vallen))
 		printf("getsockopt txtime error!\n");
 
-	if (vallen != sizeof(so_txtime_val) ||
-	    memcmp(&so_txtime_val, &so_txtime_val_read, vallen))
+	if (vallen != sizeof(so_txtime_val) || memcmp(&so_txtime_val, &so_txtime_val_read, vallen))
 		printf("getsockopt txtime: mismatch\n");
 }
 
-
-
-
 /* ------- Imported from Linuxptp -------------- */
-
-
 
 static inline tmv_t timespec_to_tmv(struct timespec ts)
 {
@@ -360,19 +332,17 @@ static inline tmv_t timespec_to_tmv(struct timespec ts)
 	return t;
 }
 
-static void init_ifreq(struct ifreq *ifreq, struct hwtstamp_config *cfg,
-	const char *device)
+static void init_ifreq(struct ifreq *ifreq, struct hwtstamp_config *cfg, const char *device)
 {
 	memset(ifreq, 0, sizeof(*ifreq));
 	memset(cfg, 0, sizeof(*cfg));
 
 	strncpy(ifreq->ifr_name, device, sizeof(ifreq->ifr_name) - 1);
 
-	ifreq->ifr_data = (void *) cfg;
+	ifreq->ifr_data = (void *)cfg;
 }
 
-static int hwts_init(int fd, const char *device, int rx_filter,
-		     int rx_filter2, int tx_type)
+static int hwts_init(int fd, const char *device, int rx_filter, int rx_filter2, int tx_type)
 {
 	struct ifreq ifreq;
 	struct hwtstamp_config cfg;
@@ -406,7 +376,7 @@ static int hwts_init(int fd, const char *device, int rx_filter,
 		}
 		break;
 	case HWTS_FILTER_FULL:
-		cfg.tx_type   = tx_type;
+		cfg.tx_type = tx_type;
 		cfg.rx_filter = HWTSTAMP_FILTER_ALL;
 		err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
 		if (err < 0) {
@@ -415,14 +385,14 @@ static int hwts_init(int fd, const char *device, int rx_filter,
 		}
 		break;
 	case HWTS_FILTER_NORMAL:
-		cfg.tx_type   = tx_type;
+		cfg.tx_type = tx_type;
 		cfg.rx_filter = orig_rx_filter = rx_filter;
 		err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
 		if (err < 0) {
 			printf("warning: driver rejected most general HWTSTAMP filter\n");
 
 			init_ifreq(&ifreq, &cfg, device);
-			cfg.tx_type   = tx_type;
+			cfg.tx_type = tx_type;
 			cfg.rx_filter = orig_rx_filter = rx_filter2;
 
 			err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
@@ -436,13 +406,10 @@ static int hwts_init(int fd, const char *device, int rx_filter,
 		break;
 	}
 
-	if (cfg.tx_type != tx_type ||
-	    (cfg.rx_filter != rx_filter &&
-	     cfg.rx_filter != rx_filter2 &&
-	     cfg.rx_filter != HWTSTAMP_FILTER_ALL)) {
+	if (cfg.tx_type != tx_type || (cfg.rx_filter != rx_filter && cfg.rx_filter != rx_filter2 &&
+				       cfg.rx_filter != HWTSTAMP_FILTER_ALL)) {
 		DEBUG("tx_type   %d not %d", cfg.tx_type, tx_type);
-		DEBUG("rx_filter %d not %d or %d", cfg.rx_filter, rx_filter,
-			 rx_filter2);
+		DEBUG("rx_filter %d not %d or %d", cfg.rx_filter, rx_filter, rx_filter2);
 		ERR("The current filter does not match the required");
 		return -1;
 	}
@@ -453,8 +420,8 @@ static int hwts_init(int fd, const char *device, int rx_filter,
 static short sk_events = POLLPRI;
 static short sk_revents = POLLPRI;
 
-int sk_receive(int fd, void *buf, int buflen,
-	       struct address *addr, struct hw_timestamp *hwts, int flags)
+int sk_receive(int fd, void *buf, int buflen, struct address *addr, struct hw_timestamp *hwts,
+	       int flags)
 {
 	char control[256];
 	int cnt = 0, res = 0, level, type;
@@ -482,9 +449,9 @@ int sk_receive(int fd, void *buf, int buflen,
 			res = poll(&pfd, 1, sk_tx_timeout);
 		if (res < 1) {
 			ERR("%s", res ? "poll for tx timestamp failed: %m" :
-			             "timed out while polling for tx timestamp");
+					"timed out while polling for tx timestamp");
 			ERR("increasing tx_timestamp_timeout may correct "
-			       "this issue, but it is likely caused by a driver bug");
+			    "this issue, but it is likely caused by a driver bug");
 			return -errno;
 		} else if (!(pfd.revents & sk_revents)) {
 			ERR("poll for tx timestamp woke up on non ERR event");
@@ -494,25 +461,24 @@ int sk_receive(int fd, void *buf, int buflen,
 
 	cnt = recvmsg(fd, &msg, flags);
 	if (cnt < 0) {
-		ERR("recvmsg%sfailed: %m",
-		       flags == MSG_ERRQUEUE ? " tx timestamp " : " ");
+		ERR("recvmsg%sfailed: %m", flags == MSG_ERRQUEUE ? " tx timestamp " : " ");
 	}
 	for (cm = CMSG_FIRSTHDR(&msg); cm != NULL; cm = CMSG_NXTHDR(&msg, cm)) {
 		level = cm->cmsg_level;
-		type  = cm->cmsg_type;
+		type = cm->cmsg_type;
 		if (SOL_SOCKET == level && SO_TIMESTAMPING == type) {
 			if (cm->cmsg_len < sizeof(*ts) * 3) {
 				printf("warning: short SO_TIMESTAMPING message\n");
 				return -EMSGSIZE;
 			}
-			ts = (struct timespec *) CMSG_DATA(cm);
+			ts = (struct timespec *)CMSG_DATA(cm);
 		}
 		if (SOL_SOCKET == level && SO_TIMESTAMPNS == type) {
 			if (cm->cmsg_len < sizeof(*sw)) {
 				printf("warning: short SO_TIMESTAMPNS message\n");
 				return -EMSGSIZE;
 			}
-			sw = (struct timespec *) CMSG_DATA(cm);
+			sw = (struct timespec *)CMSG_DATA(cm);
 			hwts->sw = timespec_to_tmv(*sw);
 		}
 	}
@@ -541,8 +507,7 @@ int sk_receive(int fd, void *buf, int buflen,
 	return cnt < 0 ? -errno : cnt;
 }
 
-int raw_send(int fd, enum transport_event event, void *buf, int len,
-	     struct hw_timestamp *hwts)
+int raw_send(int fd, enum transport_event event, void *buf, int len, struct hw_timestamp *hwts)
 {
 	/*struct raw *raw = container_of(t, struct raw, t);*/
 	ssize_t cnt;
@@ -553,36 +518,36 @@ int raw_send(int fd, enum transport_event event, void *buf, int len,
 
 	/*switch (event) {*/
 	/*case TRANS_GENERAL:*/
-		/*fd = fda->fd[FD_GENERAL];*/
-		/*break;*/
+	/*fd = fda->fd[FD_GENERAL];*/
+	/*break;*/
 	/*case TRANS_EVENT:*/
 	/*case TRANS_ONESTEP:*/
 	/*case TRANS_P2P1STEP:*/
 	/*case TRANS_DEFER_EVENT:*/
-		/*fd = fda->fd[FD_EVENT];*/
-		/*break;*/
+	/*fd = fda->fd[FD_EVENT];*/
+	/*break;*/
 	/*}*/
 
 	/*if (!addr)*/
-		/*addr = peer ? &raw->p2p_addr : &raw->ptp_addr;*/
+	/*addr = peer ? &raw->p2p_addr : &raw->ptp_addr;*/
 
 	/* To send frames with 802.1Q tag. */
 	/*if (raw->egress_vlan_tagged) {*/
-		/*ptr -= sizeof(*tag_hdr);*/
-		/*len += sizeof(*tag_hdr);*/
-		/*tag_hdr = (struct tagged_frame_header *) ptr;*/
-		/*addr_to_mac(&tag_hdr->ether_header.ether_dhost, addr);*/
-		/*addr_to_mac(&tag_hdr->ether_header.ether_shost, &raw->src_addr);*/
-		/*tag_hdr->ether_header.ether_type = htons(ETH_P_8021Q);*/
-		/*tag_hdr->vlan_tags = htons((raw->egress_vlan_prio << 13) | raw->egress_vlan_id);*/
-		/*tag_hdr->enc_ethertype = htons(ETH_P_1588);*/
+	/*ptr -= sizeof(*tag_hdr);*/
+	/*len += sizeof(*tag_hdr);*/
+	/*tag_hdr = (struct tagged_frame_header *) ptr;*/
+	/*addr_to_mac(&tag_hdr->ether_header.ether_dhost, addr);*/
+	/*addr_to_mac(&tag_hdr->ether_header.ether_shost, &raw->src_addr);*/
+	/*tag_hdr->ether_header.ether_type = htons(ETH_P_8021Q);*/
+	/*tag_hdr->vlan_tags = htons((raw->egress_vlan_prio << 13) | raw->egress_vlan_id);*/
+	/*tag_hdr->enc_ethertype = htons(ETH_P_1588);*/
 	/*} else {*/
-		/*ptr -= sizeof(*hdr);*/
-		/*len += sizeof(*hdr);*/
-		/*hdr = (struct eth_hdr *) ptr;*/
-		/*addr_to_mac(&hdr->dst, addr);*/
-		/*addr_to_mac(&hdr->src, &raw->src_addr);*/
-		/*hdr->type = htons(ETH_P_1588);*/
+	/*ptr -= sizeof(*hdr);*/
+	/*len += sizeof(*hdr);*/
+	/*hdr = (struct eth_hdr *) ptr;*/
+	/*addr_to_mac(&hdr->dst, addr);*/
+	/*addr_to_mac(&hdr->src, &raw->src_addr);*/
+	/*hdr->type = htons(ETH_P_1588);*/
 	/*}*/
 
 	cnt = send(fd, buf, len, 0);
@@ -603,20 +568,17 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 
 	switch (type) {
 	case TS_SOFTWARE:
-		flags = SOF_TIMESTAMPING_TX_SOFTWARE |
-			SOF_TIMESTAMPING_RX_SOFTWARE |
+		flags = SOF_TIMESTAMPING_TX_SOFTWARE | SOF_TIMESTAMPING_RX_SOFTWARE |
 			SOF_TIMESTAMPING_SOFTWARE;
 		break;
 	case TS_HARDWARE:
 	case TS_ONESTEP:
 	case TS_P2P1STEP:
-		flags = SOF_TIMESTAMPING_TX_HARDWARE |
-			SOF_TIMESTAMPING_RX_HARDWARE |
+		flags = SOF_TIMESTAMPING_TX_HARDWARE | SOF_TIMESTAMPING_RX_HARDWARE |
 			SOF_TIMESTAMPING_RAW_HARDWARE;
 		break;
 	case TS_LEGACY_HW:
-		flags = SOF_TIMESTAMPING_TX_HARDWARE |
-			SOF_TIMESTAMPING_RX_HARDWARE |
+		flags = SOF_TIMESTAMPING_TX_HARDWARE | SOF_TIMESTAMPING_RX_HARDWARE |
 			SOF_TIMESTAMPING_SYS_HARDWARE;
 		break;
 	default:
@@ -666,15 +628,13 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 	timestamping.flags = flags;
 	timestamping.bind_phc = vclock;
 
-	if (setsockopt(fd, SOL_SOCKET, SO_TIMESTAMPING,
-		       &timestamping, sizeof(timestamping)) < 0) {
+	if (setsockopt(fd, SOL_SOCKET, SO_TIMESTAMPING, &timestamping, sizeof(timestamping)) < 0) {
 		ERR("ioctl SO_TIMESTAMPING failed: %m");
 		return -1;
 	}
 
 	flags = 1;
-	if (setsockopt(fd, SOL_SOCKET, SO_SELECT_ERR_QUEUE,
-		       &flags, sizeof(flags)) < 0) {
+	if (setsockopt(fd, SOL_SOCKET, SO_SELECT_ERR_QUEUE, &flags, sizeof(flags)) < 0) {
 		printf("warning: %s: SO_SELECT_ERR_QUEUE: %m\n", device);
 		sk_events = 0;
 		sk_revents = POLLERR;
@@ -682,7 +642,7 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 
 	/* Enable the sk_check_fupsync option, perhaps. */
 	/*if (sk_general_init(fd)) {*/
-		/*return -1;*/
+	/*return -1;*/
 	/*}*/
 
 	return 0;
@@ -690,23 +650,23 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 
 /*int socket_init_raw(char *interface)*/
 /*{*/
-	/*struct ifreq device;*/
-	/*int sock;*/
+/*struct ifreq device;*/
+/*int sock;*/
 
-	/*sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));*/
-	/*if (sock < 0) {*/
-		/*ERR_NO("socket");*/
-		/*return -EINVAL;*/
-	/*}*/
+/*sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));*/
+/*if (sock < 0) {*/
+/*ERR_NO("socket");*/
+/*return -EINVAL;*/
+/*}*/
 
-	/*memset(&device, 0, sizeof(device));*/
-	/*strncpy(device.ifr_name, interface, sizeof(device.ifr_name));*/
-	/*if (ioctl(sock, SIOCGIFINDEX, &device) < 0) {*/
-		/*ERR_NO("getting interface index");*/
-		/*return -EINVAL;*/
-	/*}*/
+/*memset(&device, 0, sizeof(device));*/
+/*strncpy(device.ifr_name, interface, sizeof(device.ifr_name));*/
+/*if (ioctl(sock, SIOCGIFINDEX, &device) < 0) {*/
+/*ERR_NO("getting interface index");*/
+/*return -EINVAL;*/
+/*}*/
 
-	/*return sock;*/
+/*return sock;*/
 /*}*/
 
 static int sk_interface_index(int fd, const char *name)
@@ -744,18 +704,10 @@ static int sk_interface_index(int fd, const char *name)
  * (012) ret      #0
 */
 static struct sock_filter raw_filter_vlan_norm_general[] = {
-	{ 0x28, 0, 0, 0x0000000c },
-	{ 0x15, 0, 5, 0x00008100 },
-	{ 0x28, 0, 0, 0x00000010 },
-	{ 0x15, 0, 8, 0x000088f7 },
-	{ 0x30, 0, 0, 0x00000012 },
-	{ 0x54, 0, 0, 0x00000008 },
-	{ 0x15, 4, 5, 0x00000008 },
-	{ 0x15, 0, 4, 0x000088f7 },
-	{ 0x30, 0, 0, 0x0000000e },
-	{ 0x54, 0, 0, 0x00000008 },
-	{ 0x15, 0, 1, 0x00000008 },
-	{ 0x6, 0, 0, 0x00040000 },
+	{ 0x28, 0, 0, 0x0000000c }, { 0x15, 0, 5, 0x00008100 }, { 0x28, 0, 0, 0x00000010 },
+	{ 0x15, 0, 8, 0x000088f7 }, { 0x30, 0, 0, 0x00000012 }, { 0x54, 0, 0, 0x00000008 },
+	{ 0x15, 4, 5, 0x00000008 }, { 0x15, 0, 4, 0x000088f7 }, { 0x30, 0, 0, 0x0000000e },
+	{ 0x54, 0, 0, 0x00000008 }, { 0x15, 0, 1, 0x00000008 }, { 0x6, 0, 0, 0x00040000 },
 	{ 0x6, 0, 0, 0x00000000 },
 };
 
@@ -779,23 +731,15 @@ static struct sock_filter raw_filter_vlan_norm_general[] = {
  * (012) ret      #0
  */
 static struct sock_filter raw_filter_vlan_norm_event[] = {
-	{ 0x28, 0, 0, 0x0000000c },
-	{ 0x15, 0, 5, 0x00008100 },
-	{ 0x28, 0, 0, 0x00000010 },
-	{ 0x15, 0, 8, 0x000088f7 },
-	{ 0x30, 0, 0, 0x00000012 },
-	{ 0x54, 0, 0, 0x00000008 },
-	{ 0x15, 5, 4, 0x00000008 },
-	{ 0x15, 0, 4, 0x000088f7 },
-	{ 0x30, 0, 0, 0x0000000e },
-	{ 0x54, 0, 0, 0x00000008 },
-	{ 0x15, 1, 0, 0x00000008 },
-	{ 0x6, 0, 0, 0x00040000 },
+	{ 0x28, 0, 0, 0x0000000c }, { 0x15, 0, 5, 0x00008100 }, { 0x28, 0, 0, 0x00000010 },
+	{ 0x15, 0, 8, 0x000088f7 }, { 0x30, 0, 0, 0x00000012 }, { 0x54, 0, 0, 0x00000008 },
+	{ 0x15, 5, 4, 0x00000008 }, { 0x15, 0, 4, 0x000088f7 }, { 0x30, 0, 0, 0x0000000e },
+	{ 0x54, 0, 0, 0x00000008 }, { 0x15, 1, 0, 0x00000008 }, { 0x6, 0, 0, 0x00040000 },
 	{ 0x6, 0, 0, 0x00000000 },
 };
 
-static int raw_configure(int fd, int event, int index,
-			 unsigned char *addr1, unsigned char *addr2, int enable)
+static int raw_configure(int fd, int event, int index, unsigned char *addr1, unsigned char *addr2,
+			 int enable)
 {
 	int err1, err2, option;
 	struct packet_mreq mreq;
@@ -855,8 +799,8 @@ static int raw_configure(int fd, int event, int index,
 	return -1;
 }
 
-int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
-		unsigned char *p2p_dst_mac, int socket_priority)
+int open_socket(const char *name, int event, unsigned char *ptp_dst_mac, unsigned char *p2p_dst_mac,
+		int socket_priority)
 {
 	struct sockaddr_ll addr;
 	int fd, index;
@@ -874,7 +818,7 @@ int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
 	addr.sll_ifindex = index;
 	addr.sll_family = AF_PACKET;
 	addr.sll_protocol = htons(ETH_P_ALL);
-	if (bind(fd, (struct sockaddr *) &addr, sizeof(addr))) {
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr))) {
 		ERR_NO("bind failed: %m");
 		goto no_option;
 	}
@@ -884,8 +828,7 @@ int open_socket(const char *name, int event, unsigned char *ptp_dst_mac,
 	}
 
 	if (socket_priority > 0 &&
-	    setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &socket_priority,
-		       sizeof(socket_priority))) {
+	    setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &socket_priority, sizeof(socket_priority))) {
 		ERR_NO("setsockopt SO_PRIORITY failed: %m");
 		goto no_option;
 	}
@@ -898,4 +841,3 @@ no_option:
 no_socket:
 	return -1;
 }
-
