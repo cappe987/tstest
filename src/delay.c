@@ -100,7 +100,7 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 			if (!(type == expected_type)) {
 				WARN("event: received wrong PTP type. Expected %s. Got %s",
 				     ptp_type2str(expected_type), ptp_type2str(type));
-				debug_packet_data(err, (unsigned char*)msg);
+				debug_packet_data(err, (unsigned char *)msg);
 				continue;
 			}
 
@@ -115,7 +115,7 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 			if (!(type == expected_type)) {
 				WARN("general: received wrong PTP type. Expected %s. Got %s",
 				     ptp_type2str(expected_type), ptp_type2str(type));
-				debug_packet_data(err, (unsigned char*)msg);
+				debug_packet_data(err, (unsigned char *)msg);
 				continue;
 			}
 			return 0;
@@ -127,7 +127,7 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count
 {
 	Integer64 pdelay, pdelay_resp_corr, pdelay_resp_fup_corr;
 	struct hw_timestamp hwts = { 0 };
-	struct timeval tv = {0, 100000};
+	struct timeval tv = { 0, 100000 };
 	Integer64 t1, t2, t3, t4;
 	unsigned char buf[1600];
 	struct ptp_header hdr;
@@ -152,9 +152,7 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count
 	req = ptp_msg_create_type(hdr, PDELAY_REQ);
 	len = ptp_msg_get_size(PDELAY_REQ);
 
-	recv = (union Message*) buf;
-
-
+	recv = (union Message *)buf;
 
 	while (count != 0) {
 		err = raw_send(e_sock, TRANS_EVENT, &req, len, &hwts);
@@ -169,7 +167,8 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count
 			return -err;
 		}
 		if (ptp_get_seqId(&recv->hdr) != seq) {
-			ERR("pdelay_resp: wrong seqId. Expected %d. Got %d", seq, ptp_get_seqId(&recv->hdr));
+			ERR("pdelay_resp: wrong seqId. Expected %d. Got %d", seq,
+			    ptp_get_seqId(&recv->hdr));
 			return EINVAL;
 		}
 		t2 = be_timestamp_to_ns(recv->pdelay_resp.requestReceiptTimestamp);
@@ -180,13 +179,14 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count
 			return -err;
 		}
 		if (ptp_get_seqId(&recv->hdr) != seq) {
-			ERR("pdelay_resp_fup: wrong seqId. Expected %d. Got %d", seq, ptp_get_seqId(&recv->hdr));
+			ERR("pdelay_resp_fup: wrong seqId. Expected %d. Got %d", seq,
+			    ptp_get_seqId(&recv->hdr));
 			return EINVAL;
 		}
 
 		t3 = be_timestamp_to_ns(recv->pdelay_resp_fup.responseOriginTimestamp);
 		pdelay_resp_fup_corr = be64toh(recv->hdr.correction) >> 16;
-		pdelay = ((t4 - t1) - (t3 - t2) - pdelay_resp_corr - pdelay_resp_fup_corr)/2;
+		pdelay = ((t4 - t1) - (t3 - t2) - pdelay_resp_corr - pdelay_resp_fup_corr) / 2;
 		printf("Pdelay %ld\n", pdelay);
 
 		seq++;
@@ -209,7 +209,7 @@ int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
 
 	hwts.type = type;
 
-	recv = (union Message*) buf;
+	recv = (union Message *)buf;
 
 	while (1) {
 		err = receive_packet(e_sock, g_sock, NULL, PDELAY_REQ, recv, &req_rx_ts);
@@ -220,12 +220,12 @@ int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
 		/* Two-step peer delay response. IEEE1588-2019, 11.4.2 (c) */
 		corrField = recv->hdr.correction; // Use for resp-fup
 		recv->hdr.correction = 0; // Reset for resp
-		memcpy(&recv->pdelay_resp.requestingPortIdentity,
-		       &recv->hdr.sourcePortIdentity,
+		memcpy(&recv->pdelay_resp.requestingPortIdentity, &recv->hdr.sourcePortIdentity,
 		       sizeof(struct PortIdentity));
 		// TODO: Set our own sourcePortIdentity
 		// TODO: Set twoStepFlag when doing two-step response
-		memcpy(&recv->hdr.sourcePortIdentity.clockIdentity.id, "\xaa\xaa\xaa\xff\xfe\xaa\xaa\xaa", 6);
+		memcpy(&recv->hdr.sourcePortIdentity.clockIdentity.id,
+		       "\xaa\xaa\xaa\xff\xfe\xaa\xaa\xaa", 6);
 		sec = req_rx_ts / NS_PER_SEC;
 		nsec = req_rx_ts % NS_PER_SEC;
 		ts.seconds_lsb = sec & 0xFFFFFFFF;
@@ -244,7 +244,8 @@ int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
 		ptp_set_type(&recv->hdr, PDELAY_RESP_FUP);
 		recv->hdr.correction = corrField;
 		recv->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(resp_tx_ts);
-		err = raw_send(g_sock, TRANS_GENERAL, recv, ptp_msg_get_size(PDELAY_RESP_FUP), NULL);
+		err = raw_send(g_sock, TRANS_GENERAL, recv, ptp_msg_get_size(PDELAY_RESP_FUP),
+			       NULL);
 		if (err < 0) {
 			return -err;
 		}
@@ -296,8 +297,7 @@ int run_delay_mode(int argc, char **argv)
 	if (g_sock < 0)
 		return g_sock;
 
-	err = sk_timestamping_init(e_sock, interface, type,
-				   TRANS_IEEE_802_3, -1);
+	err = sk_timestamping_init(e_sock, interface, type, TRANS_IEEE_802_3, -1);
 	if (err < 0)
 		return -err;
 

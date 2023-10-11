@@ -1,19 +1,8 @@
 #!/bin/bash
 
-ip link add veth1 type veth peer name veth2
-ip link set dev veth1 up
-ip link set dev veth2 up
-
-# Allow interfaces to come up
-sleep 3
-
 tstest=$1
 TEST=$2
 
-# Test occasionally fails for some reason, seems to be getting wrong packets:
-# Warn: received wrong PTP type: sync
-# Error: timed out waiting for pdelay_resp
-# Bad path delay. Value:
 delay_single() {
 	$tstest delay server -i veth1 &
 	PID=$!
@@ -51,8 +40,17 @@ delay_timeout() {
 
 tests="delay_single delay_timeout"
 
+
+echo "[TEST] Setting up tests"
+ip link add veth1 type veth peer name veth2
+ip link set dev veth1 up
+ip link set dev veth2 up
+
+# Allow interfaces to come up
+sleep 3
+
+echo "[TEST] Running tests"
 if [ "$TEST" = "" ]; then
-	echo "[TEST] Running tests"
 	for t in $tests; do
 		curr_test=$t
 		if $t; then
@@ -63,7 +61,6 @@ if [ "$TEST" = "" ]; then
 		fi
 	done
 elif echo "$tests" | grep -q "$TEST"; then
-	echo "[TEST] Running test: $TEST"
 	curr_test=$TEST
 	if $TEST; then
 		echo -e "[\e[32mPASS\e[0m] $t"

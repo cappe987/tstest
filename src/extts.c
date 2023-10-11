@@ -44,27 +44,35 @@ typedef struct {
 	int pin_idx;
 } Extts_Cfg;
 
-
 #define pr_err(...) fprintf(stderr, __VA_ARGS__)
 #define pr_emerg(...) fprintf(stderr, __VA_ARGS__)
 #define pr_debug(...) fprintf(stderr, __VA_ARGS__)
 
-
 #define CLOCK_INVALID -1
 #define CLOCKFD 3
-#define FD_TO_CLOCKID(fd)	((clockid_t) ((((unsigned int) ~fd) << 3) | CLOCKFD))
-#define CLOCKID_TO_FD(clk)	((unsigned int) ~((clk) >> 3))
-#define BITS_PER_LONG	(sizeof(long)*8)
-#define MAX_PPB_32	32767999	/* 2^31 - 1 / 65.536 */
+#define FD_TO_CLOCKID(fd) ((clockid_t)((((unsigned int)~fd) << 3) | CLOCKFD))
+#define CLOCKID_TO_FD(clk) ((unsigned int)~((clk) >> 3))
+#define BITS_PER_LONG (sizeof(long) * 8)
+#define MAX_PPB_32 32767999 /* 2^31 - 1 / 65.536 */
 
 /*
  * Bits of the ptp_extts_request.flags field:
  */
-#define PTP_ENABLE_FEATURE (1<<0)
-#define PTP_RISING_EDGE    (1<<1)
-#define PTP_FALLING_EDGE   (1<<2)
-#define PTP_STRICT_FLAGS   (1<<3)
-#define PTP_EXTTS_EDGES    (PTP_RISING_EDGE | PTP_FALLING_EDGE)
+#ifndef PTP_ENABLE_FEATURE
+#define PTP_ENABLE_FEATURE (1 << 0)
+#endif
+#ifndef PTP_RISING_EDGE
+#define PTP_RISING_EDGE (1 << 1)
+#endif
+#ifndef PTP_FALLING_EDGE
+#define PTP_FALLING_EDGE (1 << 2)
+#endif
+#ifndef PTP_STRICT_FLAGS
+#define PTP_STRICT_FLAGS (1 << 3)
+#endif
+#ifndef PTP_EXTTS_EDGES
+#define PTP_EXTTS_EDGES (PTP_RISING_EDGE | PTP_FALLING_EDGE)
+#endif
 
 #ifdef PTP_PIN_SETFUNC2
 #define PTP_PIN_SETFUNC_FAILED "PTP_PIN_SETFUNC2 failed: %m\n"
@@ -88,7 +96,6 @@ struct ts2phc_clock {
 	int phc_index;
 	char *name;
 };
-
 
 /**
  * Contains timestamping information returned by the GET_TS_INFO ioctl.
@@ -130,7 +137,6 @@ Options:\n\
         -P <polarity> (rising|falling|both)\n\
 \n");
 }
-
 
 clockid_t phc_open(const char *phc)
 {
@@ -223,16 +229,15 @@ int phc_has_pps(clockid_t clkid)
 
 /*int phc_has_writephase(clockid_t clkid)*/
 /*{*/
-	/*struct ptp_clock_caps caps;*/
+/*struct ptp_clock_caps caps;*/
 
-	/*if (phc_get_caps(clkid, &caps)) {*/
-		/*return 0;*/
-	/*}*/
-	/*return caps.adjust_phase;*/
+/*if (phc_get_caps(clkid, &caps)) {*/
+/*return 0;*/
+/*}*/
+/*return caps.adjust_phase;*/
 /*}*/
 
-enum parser_result get_ranged_int(const char *str_val, int *result,
-				  int min, int max)
+enum parser_result get_ranged_int(const char *str_val, int *result, int min, int max)
 {
 	long parsed_val;
 	char *endptr = NULL;
@@ -257,7 +262,7 @@ int sk_get_ts_info(const char *name, struct sk_ts_info *sk_info)
 	memset(&info, 0, sizeof(info));
 	info.cmd = ETHTOOL_GET_TS_INFO;
 	strncpy(ifr.ifr_name, name, IFNAMSIZ - 1);
-	ifr.ifr_data = (char *) &info;
+	ifr.ifr_data = (char *)&info;
 	fd = socket(AF_INET, SOCK_DGRAM, 0);
 
 	if (fd < 0) {
@@ -311,11 +316,10 @@ clockid_t posix_clock_open(const char *device, int *phc_index)
 			return clkid;
 
 		if (!strncmp(phc_device_path, "/dev/ptp", strlen("/dev/ptp"))) {
-			int r = get_ranged_int(phc_device_path + strlen("/dev/ptp"),
-					       phc_index, 0, 65535);
+			int r = get_ranged_int(phc_device_path + strlen("/dev/ptp"), phc_index, 0,
+					       65535);
 			if (r) {
-				fprintf(stderr,
-					"failed to parse PHC index from %s\n",
+				fprintf(stderr, "failed to parse PHC index from %s\n",
 					phc_device_path);
 				phc_close(clkid);
 				return CLOCK_INVALID;
@@ -350,7 +354,6 @@ void posix_clock_close(clockid_t clock)
 	phc_close(clock);
 }
 
-
 struct ts2phc_clock *ts2phc_clock_add(const char *device)
 {
 	clockid_t clkid;
@@ -381,8 +384,7 @@ struct ts2phc_clock *ts2phc_clock_add(const char *device)
 	return c;
 }
 
-static int toggle_extts(struct ts2phc_clock *clock,
-			Extts_Cfg *cfg, int ena)
+static int toggle_extts(struct ts2phc_clock *clock, Extts_Cfg *cfg, int ena)
 {
 	struct ptp_extts_request extts;
 	struct ptp_pin_desc pin_desc;
@@ -393,8 +395,6 @@ static int toggle_extts(struct ts2phc_clock *clock,
 	pin_desc.chan = cfg->channel;
 	pin_desc.index = cfg->pin_idx;
 	pin_desc.func = PTP_PF_EXTTS;
-
-
 
 	printf("index %d. chan %d. func %d\n", cfg->pin_idx, cfg->channel, PTP_PF_EXTTS);
 	if (ena) {
@@ -419,7 +419,6 @@ static int toggle_extts(struct ts2phc_clock *clock,
 
 void clock_destroy(struct ts2phc_clock *clock)
 {
-
 	posix_clock_close(clock->clkid);
 	free(clock->name);
 	free(clock);
@@ -451,13 +450,12 @@ static int clear_fifo(struct ts2phc_clock *clock)
 			pr_err("read failed");
 			return -1;
 		}
-		printf("Clearing queue: %s extts index %u at %lld.%09u",
-		       clock->name, event.index, event.t.sec, event.t.nsec);
+		printf("Clearing queue: %s extts index %u at %lld.%09u", clock->name, event.index,
+		       event.t.sec, event.t.nsec);
 	}
 
 	return 0;
 }
-
 
 static int poll_events(struct ts2phc_clock *clock)
 {
@@ -485,13 +483,12 @@ static int poll_events(struct ts2phc_clock *clock)
 			pr_err("read failed");
 			return -1;
 		}
-		printf("%s extts index %u at %lld.%09u\n",
-		       clock->name, event.index, event.t.sec, event.t.nsec);
+		printf("%s extts index %u at %lld.%09u\n", clock->name, event.index, event.t.sec,
+		       event.t.nsec);
 	}
 
 	return 0;
 }
-
 
 static void sig_handler(int sig)
 {
@@ -508,12 +505,10 @@ static int parse_edge_type(char *str)
 		return PTP_EXTTS_EDGES;
 	else
 		return -1;
-
 }
 
 static int parse_args(int argc, char **argv, Extts_Cfg *cfg)
 {
-
 	int opt_index;
 	int c;
 
@@ -523,46 +518,39 @@ static int parse_args(int argc, char **argv, Extts_Cfg *cfg)
 	}
 
 	struct option long_options[] = {
-		{ "iface",            no_argument,       NULL,    'i' },
-		{ "pin",              no_argument,       NULL,    'p' },
-		{ "channel",          no_argument,       NULL,    'c' },
-		{ "polarity",         no_argument,       NULL,    'P' },
-		{ "help",             no_argument,       NULL,    'h' },
-		{ NULL,               0,                 NULL,     0  }
+		{ "iface", no_argument, NULL, 'i' },   { "pin", no_argument, NULL, 'p' },
+		{ "channel", no_argument, NULL, 'c' }, { "polarity", no_argument, NULL, 'P' },
+		{ "help", no_argument, NULL, 'h' },    { NULL, 0, NULL, 0 }
 	};
 
 	while ((c = getopt_long(argc, argv, "i:p:c:P:h", long_options, &opt_index)) != -1) {
-		switch (c)
-		{
-			case 'i':
-				cfg->iface = optarg;
-				break;
-			case 'p':
-				cfg->pin_idx = atoi(optarg);
-				break;
-			case 'c':
-				cfg->channel = atoi(optarg);
-				break;
-			case 'P':
-				cfg->polarity = parse_edge_type(optarg);
-				break;
-			case 'h':
-				extts_help();
-				exit(0);
-			case '?':
-				if (optopt == 'c')
-					fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-				else
-					fprintf (stderr,
-						"Unknown option character `\\x%x'.\n",
-						optopt);
-				return EINVAL;
-			default:
-				extts_help();
-				exit(0);
+		switch (c) {
+		case 'i':
+			cfg->iface = optarg;
+			break;
+		case 'p':
+			cfg->pin_idx = atoi(optarg);
+			break;
+		case 'c':
+			cfg->channel = atoi(optarg);
+			break;
+		case 'P':
+			cfg->polarity = parse_edge_type(optarg);
+			break;
+		case 'h':
+			extts_help();
+			exit(0);
+		case '?':
+			if (optopt == 'c')
+				fprintf(stderr, "Option -%c requires an argument.\n", optopt);
+			else
+				fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
+			return EINVAL;
+		default:
+			extts_help();
+			exit(0);
 		}
 	}
-
 
 	if (!cfg->iface) {
 		fprintf(stderr, "No interface provided\n");
@@ -616,7 +604,6 @@ int run_extts_mode(int argc, char **argv)
 
 	clear_fifo(clock);
 	poll_events(clock);
-
 
 	err = toggle_extts(clock, &cfg, 0);
 	if (err)
