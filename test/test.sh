@@ -4,27 +4,52 @@ ip link add veth1 type veth peer name veth2
 ip link set dev veth1 up
 ip link set dev veth2 up
 
-BIN=$1
+# Allow interfaces to come up
+sleep 3
+
+tstest=$1
 TEST=$2
 
-tests="delay_basic"
-
-delay_basic() {
-	$BIN delay server -i veth1 &
+# Test occasionally fails for some reason, seems to be getting wrong packets:
+# Warn: received wrong PTP type: sync
+# Error: timed out waiting for pdelay_resp
+# Bad path delay. Value:
+delay_single() {
+	$tstest delay server -i veth1 &
 	PID=$!
 
-	OUT=$($BIN delay client -i veth2 -c 1)
+	sleep 0.5
+
+	OUT=$($tstest delay client -i veth2 -c 1)
 	kill $PID
 
 	NUM=$(echo $OUT | cut -d' ' -f2)
 
 	if ((NUM < 10000 && NUM > 0)); then
 		return 0
-	else
-		echo "path delay > 10000. Value: $NUM"
+	elif [ -z "$NUM" ]; then
+		echo "Bad output: $OUT"
+		return 1
+	elif ((NUM >= 10000 || NUM <= 0)); then
+		echo "Bad path delay. Value: $NUM"
 		return 1
 	fi
 }
+
+delay_timeout() {
+	TMP=$(mktemp)
+	OUT=$($tstest delay client -i veth2 -c 1 2> $TMP)
+	if cat "$TMP" | grep -q 'timed out waiting for pdelay_resp'; then
+		return 0
+	else
+		echo "Unexpected output: $OUT"
+		return 1
+	fi
+
+	rm "$TMP"
+}
+
+tests="delay_single delay_timeout"
 
 if [ "$TEST" = "" ]; then
 	echo "[TEST] Running tests"
@@ -40,7 +65,7 @@ if [ "$TEST" = "" ]; then
 elif echo "$tests" | grep -q "$TEST"; then
 	echo "[TEST] Running test: $TEST"
 	curr_test=$TEST
-	if $test; then
+	if $TEST; then
 		echo -e "[\e[32mPASS\e[0m] $t"
 	else
 		echo -e "[\e[31mFAIL\e[0m] $t"
