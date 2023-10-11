@@ -226,11 +226,6 @@ int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
 		// TODO: Set twoStepFlag when doing two-step response
 		memcpy(&recv->hdr.sourcePortIdentity.clockIdentity.id,
 		       "\xaa\xaa\xaa\xff\xfe\xaa\xaa\xaa", 6);
-		sec = req_rx_ts / NS_PER_SEC;
-		nsec = req_rx_ts % NS_PER_SEC;
-		ts.seconds_lsb = sec & 0xFFFFFFFF;
-		ts.seconds_msb = (sec >> 32) & 0xFFFF;
-		ts.nanoseconds = nsec;
 
 		recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(req_rx_ts);
 		ptp_set_type(&recv->hdr, PDELAY_RESP);
