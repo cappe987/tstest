@@ -4,12 +4,12 @@ tstest=$1
 TEST=$2
 
 delay_single() {
-	$tstest delay server -i veth1 &
+	$tstest delay server -S -i veth1 &
 	PID=$!
 
 	sleep 0.5
 
-	OUT=$($tstest delay client -i veth2 -c 1)
+	OUT=$($tstest delay client -S -i veth2 -c 1)
 	kill $PID
 
 	NUM=$(echo $OUT | cut -d' ' -f2)
@@ -27,7 +27,7 @@ delay_single() {
 
 delay_timeout() {
 	TMP=$(mktemp)
-	OUT=$($tstest delay client -i veth2 -c 1 2> $TMP)
+	OUT=$($tstest delay client -S -i veth2 -c 1 2> $TMP)
 	if cat "$TMP" | grep -q 'timed out waiting for pdelay_resp'; then
 		return 0
 	else

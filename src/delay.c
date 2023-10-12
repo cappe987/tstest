@@ -13,12 +13,23 @@
 #include "liblink.h"
 
 /* TODO:
- * - Clean up and separate server and client
- * - Arguments for domain, version, etc.
+ * - Create function calculate_pdelay that takes
+ *   t1,t2,t3,t4,resp_corr,resp_fup_corr and calculates based on what mode
+ *   delay modes is set.
  * - Implement mmedian_sample delay filter (ptp4l delay_filter)
  * - Implement one-step P2P
  * - Implement E2E
+ * - Set twoStepFlag correctly
  */
+
+struct delay_cfg {
+	enum delay_mechanism delay;
+	enum timestamp_type tstype;
+	UInteger8 domain;
+	Integer8 version;
+	Integer64 count;
+	char *interface;
+};
 
 void delay_help()
 {
@@ -54,19 +65,6 @@ int msg_get_type(union Message *msg)
 	return msg->hdr.tsmt & 0xF;
 }
 
-static void debug_packet_data(size_t length, uint8_t *data)
-{
-	size_t i;
-
-	fprintf(stderr, "Length %ld\n", length);
-	if (length > 0) {
-		fprintf(stderr, " ");
-		for (i = 0; i < length; i++)
-			fprintf(stderr, "%02x ", data[i]);
-		fprintf(stderr, "\n");
-	}
-}
-
 int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type,
 		   union Message *msg, Integer64 *ns)
 {
@@ -100,7 +98,6 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 			if (!(type == expected_type)) {
 				WARN("event: received wrong PTP type. Expected %s. Got %s",
 				     ptp_type2str(expected_type), ptp_type2str(type));
-				debug_packet_data(err, (unsigned char *)msg);
 				continue;
 			}
 
@@ -115,7 +112,6 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 			if (!(type == expected_type)) {
 				WARN("general: received wrong PTP type. Expected %s. Got %s",
 				     ptp_type2str(expected_type), ptp_type2str(type));
-				debug_packet_data(err, (unsigned char *)msg);
 				continue;
 			}
 			return 0;
@@ -123,7 +119,7 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 	}
 }
 
-int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count)
+int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 {
 	Integer64 pdelay, pdelay_resp_corr, pdelay_resp_fup_corr;
 	struct hw_timestamp hwts = { 0 };
@@ -138,29 +134,28 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count
 	int err;
 	int len;
 
-	hwts.type = type;
-	str2mac("ff:ff:ff:ff:ff:ff", mac);
+	hwts.type = cfg->tstype;
+	str2mac(p2p_dst_mac, mac);
 
 	hdr = ptp_header_template();
 	ptp_set_type(&hdr, PDELAY_REQ);
-	ptp_set_seqId(&hdr, 0x0);
 	ptp_set_dmac(&hdr, mac);
 	ptp_set_transport_specific(&hdr, 0x0);
-	ptp_set_version(&hdr, 2 | (1 << 4));
-	ptp_set_domain(&hdr, 0x0);
+	ptp_set_version(&hdr, cfg->version);
+	ptp_set_domain(&hdr, cfg->domain);
 
 	req = ptp_msg_create_type(hdr, PDELAY_REQ);
 	len = ptp_msg_get_size(PDELAY_REQ);
 
 	recv = (union Message *)buf;
 
-	while (count != 0) {
+	while (cfg->count != 0) {
+		ptp_set_seqId(&req.hdr, seq);
 		err = raw_send(e_sock, TRANS_EVENT, &req, len, &hwts);
 		if (err < 0) {
 			return -err;
 		}
 		t1 = hwts.ts.ns;
-		ptp_set_seqId(&req.hdr, seq);
 
 		err = receive_packet(e_sock, g_sock, &tv, PDELAY_RESP, recv, &t4);
 		if (err < 0) {
@@ -190,14 +185,14 @@ int run_delay_client(int e_sock, int g_sock, enum timestamp_type type, int count
 		printf("Pdelay %ld\n", pdelay);
 
 		seq++;
-		count--;
-		if (count != 0)
+		cfg->count--;
+		if (cfg->count != 0)
 			usleep(1000000);
 	}
 	return 0;
 }
 
-int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
+int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 {
 	Integer64 corrField, req_rx_ts, resp_tx_ts;
 	struct hw_timestamp hwts = { 0 };
@@ -207,7 +202,7 @@ int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
 	Integer64 sec, nsec;
 	int err;
 
-	hwts.type = type;
+	hwts.type = cfg->tstype;
 
 	recv = (union Message *)buf;
 
@@ -247,15 +242,86 @@ int run_delay_server(int e_sock, int g_sock, enum timestamp_type type)
 	}
 }
 
+int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
+{
+	int c;
+
+	cfg->version = 2 | (1 << 4);
+	cfg->delay = DM_P2P;
+	cfg->tstype = TS_HARDWARE;
+	cfg->domain = 0;
+	cfg->count = -1;
+
+	struct option long_options[] = { { "help", no_argument, NULL, 'h' },
+					 /*{ "transportSpecific", required_argument, NULL, 1 },*/
+					 { NULL, 0, NULL, 0 } };
+
+	if (argc == 1) {
+		delay_help();
+		return EINVAL;
+	}
+
+	while ((c = getopt_long(argc, argv, "ESohi:c:D:v:", long_options, NULL)) != -1) {
+		switch (c) {
+		case 'E':
+			cfg->delay = DM_E2E;
+			break;
+		case 'S':
+			cfg->tstype = TS_SOFTWARE;
+			break;
+		case 'o':
+			cfg->tstype = TS_P2P1STEP;
+			break;
+		case 'i':
+			cfg->interface = optarg;
+			break;
+		case 'c':
+			cfg->count = strtoul(optarg, NULL, 0);
+			break;
+		case 'D':
+			cfg->domain = strtoul(optarg, NULL, 0);
+			break;
+		case 'v':
+			if (optarg == NULL)
+				printf("bad version input\n");
+			else if (strncmp(optarg, "2.1", 3) == 0)
+				cfg->version = 2 | (1 << 4);
+			else if (strncmp(optarg, "2", 1) == 0)
+				cfg->version = 2;
+			else
+				printf("bad version input\n");
+			break;
+		/*case 'd':*/
+			/*debugen = 1;*/
+			/*break;*/
+		case 'h':
+			delay_help();
+			return 1;
+		case '?':
+			if (optopt == 'c')
+				fprintf(stderr, "Option -%c requires an argument.\n", optopt);
+			else
+				fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
+			return 1;
+		default:
+			delay_help();
+			return 1;
+		}
+	}
+
+	if (!cfg->interface) {
+		fprintf(stderr, "Error: missing input interface\n");
+		return EINVAL;
+	}
+
+	return 0;
+}
+
 int run_delay_mode(int argc, char **argv)
 {
-	enum timestamp_type type;
+	struct delay_cfg cfg = { 0 };
 	int err, e_sock, g_sock;
 	int client_mode;
-	char *interface;
-	int count = -1;
-
-	type = TS_SOFTWARE;
 
 	if (argc <= 1) {
 		delay_help();
@@ -270,36 +336,26 @@ int run_delay_mode(int argc, char **argv)
 		ERR("expected 'client' or 'server' mode");
 		return EINVAL;
 	}
+	argc--;
+	argv = &argv[1];
 
-	// FIXME: Do proper argument parsing
-	if (argc > 3 && strcmp(argv[2], "-i") == 0) {
-		interface = argv[3];
-	}
+	delay_parse_opt(argc, argv, &cfg);
 
-	if (argc > 5 && strcmp(argv[4], "-c") == 0) {
-		count = strtol(argv[5], NULL, 10);
-	}
-
-	if (!interface) {
-		fprintf(stderr, "Error: missing input interface\n");
-		return EINVAL;
-	}
-
-	e_sock = open_socket(interface, 1, ptp_dst_mac, p2p_dst_mac, 0);
+	e_sock = open_socket(cfg.interface, 1, ptp_dst_mac, p2p_dst_mac, 0);
 	if (e_sock < 0)
 		return e_sock;
-	g_sock = open_socket(interface, 0, ptp_dst_mac, p2p_dst_mac, 0);
+	g_sock = open_socket(cfg.interface, 0, ptp_dst_mac, p2p_dst_mac, 0);
 	if (g_sock < 0)
 		return g_sock;
 
-	err = sk_timestamping_init(e_sock, interface, type, TRANS_IEEE_802_3, -1);
+	err = sk_timestamping_init(e_sock, cfg.interface, cfg.tstype, TRANS_IEEE_802_3, -1);
 	if (err < 0)
 		return -err;
 
 	if (client_mode) {
-		return run_delay_client(e_sock, g_sock, type, count);
+		return run_delay_client(e_sock, g_sock, &cfg);
 	} else {
-		return run_delay_server(e_sock, g_sock, type);
+		return run_delay_server(e_sock, g_sock, &cfg);
 	}
 
 	return 0;
