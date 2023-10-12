@@ -77,6 +77,24 @@ enum timestamp_type {
 	TS_P2P1STEP,
 };
 
+/**
+ * Defines the possible delay mechanisms.
+ */
+enum delay_mechanism {
+
+	/** Start as E2E, but switch to P2P if a peer is detected. */
+	DM_AUTO,
+
+	/** Delay request-response mechanism. */
+	DM_E2E,
+
+	/** Peer delay mechanism. */
+	DM_P2P,
+
+	/** No Delay Mechanism. */
+	DM_NO_MECHANISM = 0xFE,
+};
+
 struct hw_timestamp {
 	enum timestamp_type type;
 	tmv_t ts;
