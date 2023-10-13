@@ -380,10 +380,10 @@ int run_delay_mode(int argc, char **argv)
 
 	delay_parse_opt(argc, argv, &cfg);
 
-	e_sock = open_socket(cfg.interface, 1, ptp_dst_mac, p2p_dst_mac, 0);
+	e_sock = open_socket(cfg.interface, 1, ptp_dst_mac, p2p_dst_mac, 0, 1);
 	if (e_sock < 0)
 		return e_sock;
-	g_sock = open_socket(cfg.interface, 0, ptp_dst_mac, p2p_dst_mac, 0);
+	g_sock = open_socket(cfg.interface, 0, ptp_dst_mac, p2p_dst_mac, 0, 1);
 	if (g_sock < 0)
 		return g_sock;
 
