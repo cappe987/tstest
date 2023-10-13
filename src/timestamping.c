@@ -800,7 +800,7 @@ static int raw_configure(int fd, int event, int index, unsigned char *addr1, uns
 }
 
 int open_socket(const char *name, int event, unsigned char *ptp_dst_mac, unsigned char *p2p_dst_mac,
-		int socket_priority)
+		int socket_priority, int ena_filters)
 {
 	struct sockaddr_ll addr;
 	int fd, index;
@@ -832,7 +832,7 @@ int open_socket(const char *name, int event, unsigned char *ptp_dst_mac, unsigne
 		ERR_NO("setsockopt SO_PRIORITY failed: %m");
 		goto no_option;
 	}
-	if (raw_configure(fd, event, index, ptp_dst_mac, p2p_dst_mac, 1))
+	if (ena_filters && raw_configure(fd, event, index, ptp_dst_mac, p2p_dst_mac, 1))
 		goto no_option;
 
 	return fd;

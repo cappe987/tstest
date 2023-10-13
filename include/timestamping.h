@@ -123,6 +123,6 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 			 enum transport_type transport, int vclock);
 //int socket_init_raw(char *interface);
 int open_socket(const char *name, int event, unsigned char *ptp_dst_mac, unsigned char *p2p_dst_mac,
-		int socket_priority);
+		int socket_priority, int ena_filters);
 
 #endif /* __TSTEST_TIMESTAMPING_H__ */
