@@ -13,11 +13,7 @@
 #include "liblink.h"
 
 /* TODO:
- * - Create function calculate_pdelay that takes
- *   t1,t2,t3,t4,resp_corr,resp_fup_corr and calculates based on what mode
- *   delay modes is set.
  * - Implement mmedian_sample delay filter (ptp4l delay_filter)
- * - Implement one-step P2P
  * - Implement E2E
  * - Set twoStepFlag correctly
  */
@@ -29,6 +25,7 @@ struct delay_cfg {
 	Integer8 version;
 	Integer64 count;
 	char *interface;
+	int half_step;
 };
 
 void delay_help()
@@ -38,15 +35,18 @@ void delay_help()
 Usage:\n\
         tstest delay <server|client> [options]\n\n\
 Options:\n\
-        -i <interface> \n\
-        -o Use one-step P2P \n\
-        -E Use E2E delay \n\
-        -c <frame counts>. Client only, performs N measurements\n\
-        -D Set domain number\n\
+        -i <interface>\n\
+        -o Set one-step. Does not affect delay packets, intended for testing hardware behavior\n\
+        -O Use P2P one-step\n\
+        -P Use P2P delay (default)\n\
+        -E Use E2E delay\n\
+        -c <frame counts>. Client only. Performs N measurements\n\
+        -D Set domain number. Default: 0\n\
         -v Set PTP version number\n\
         -d Enable debug output\n\
-        -h help\n\
+        -h Print this help text\n\
         --delay_filter <moving_median|moving_average>. Default: moving_median.\n\
+        --1.5step Server only. Use 1.5-step transmission\n\
         \n");
 }
 
@@ -121,25 +121,28 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 
 int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 {
-	Integer64 pdelay, pdelay_resp_corr, pdelay_resp_fup_corr;
-	struct hw_timestamp hwts = { 0 };
+	Integer64 pdelay_resp_fup_corr = 0;
 	struct timeval tv = { 0, 100000 };
-	Integer64 t1, t2, t3, t4;
+	struct hw_timestamp hwts = { 0 };
+	Integer64 pdelay_resp_corr = 0;
 	unsigned char buf[1600];
 	struct ptp_header hdr;
 	union Message *recv;
 	union Message req;
-	Octet mac[ETH_ALEN];
 	UInteger16 seq = 0;
+	Integer64 pdelay;
+	Integer64 t1 = 0;
+	Integer64 t2 = 0;
+	Integer64 t3 = 0;
+	Integer64 t4 = 0;
 	int err;
 	int len;
 
 	hwts.type = cfg->tstype;
-	str2mac(p2p_dst_mac, mac);
 
 	hdr = ptp_header_template();
 	ptp_set_type(&hdr, PDELAY_REQ);
-	ptp_set_dmac(&hdr, mac);
+	ptp_set_dmac(&hdr, p2p_dst_mac);
 	ptp_set_transport_specific(&hdr, 0x0);
 	ptp_set_version(&hdr, cfg->version);
 	ptp_set_domain(&hdr, cfg->domain);
@@ -169,18 +172,22 @@ int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 		t2 = be_timestamp_to_ns(recv->pdelay_resp.requestReceiptTimestamp);
 		pdelay_resp_corr = be64toh(recv->hdr.correction) >> 16;
 
-		err = receive_packet(e_sock, g_sock, &tv, PDELAY_RESP_FUP, recv, NULL);
-		if (err < 0) {
-			return -err;
-		}
-		if (ptp_get_seqId(&recv->hdr) != seq) {
-			ERR("pdelay_resp_fup: wrong seqId. Expected %d. Got %d", seq,
-			    ptp_get_seqId(&recv->hdr));
-			return EINVAL;
+		/* P2P1STEP has its compensation stored in  pdelay_resp_corr above.
+		 * t2 should be 0 in the pdelay_resp, and t3 is already set to 0*/
+		if (cfg->tstype != TS_P2P1STEP) {
+			err = receive_packet(e_sock, g_sock, &tv, PDELAY_RESP_FUP, recv, NULL);
+			if (err < 0) {
+				return -err;
+			}
+			if (ptp_get_seqId(&recv->hdr) != seq) {
+				ERR("pdelay_resp_fup: wrong seqId. Expected %d. Got %d", seq,
+				    ptp_get_seqId(&recv->hdr));
+				return EINVAL;
+			}
+			t3 = be_timestamp_to_ns(recv->pdelay_resp_fup.responseOriginTimestamp);
+			pdelay_resp_fup_corr = be64toh(recv->hdr.correction) >> 16;
 		}
 
-		t3 = be_timestamp_to_ns(recv->pdelay_resp_fup.responseOriginTimestamp);
-		pdelay_resp_fup_corr = be64toh(recv->hdr.correction) >> 16;
 		pdelay = ((t4 - t1) - (t3 - t2) - pdelay_resp_corr - pdelay_resp_fup_corr) / 2;
 		printf("Pdelay %ld\n", pdelay);
 
@@ -194,7 +201,8 @@ int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 
 int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 {
-	Integer64 corrField, req_rx_ts, resp_tx_ts;
+	Integer64 corrField = 0, req_rx_ts = 0, resp_tx_ts = 0;
+	enum transport_event resp_event_type;
 	struct hw_timestamp hwts = { 0 };
 	unsigned char buf[1600];
 	struct Timestamp ts;
@@ -206,15 +214,23 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 
 	recv = (union Message *)buf;
 
+	if (cfg->half_step)
+		resp_event_type = TRANS_ONESTEP;
+	else
+		resp_event_type = TRANS_EVENT;
+
 	while (1) {
 		err = receive_packet(e_sock, g_sock, NULL, PDELAY_REQ, recv, &req_rx_ts);
 		if (err < 0) {
 			return -err;
 		}
 
-		/* Two-step peer delay response. IEEE1588-2019, 11.4.2 (c) */
-		corrField = recv->hdr.correction; // Use for resp-fup
-		recv->hdr.correction = 0; // Reset for resp
+		/* Two-step peer delay response. IEEE1588-2019, 11.4.2.
+		 * Section c), 7) uses option B: sending the timestamps back.
+		 * Option A is to add the residence time to correction field.
+		 * Maybe implement option A later.
+		 * */
+		ptp_set_type(&recv->hdr, PDELAY_RESP);
 		memcpy(&recv->pdelay_resp.requestingPortIdentity, &recv->hdr.sourcePortIdentity,
 		       sizeof(struct PortIdentity));
 		// TODO: Set our own sourcePortIdentity
@@ -222,15 +238,22 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 		memcpy(&recv->hdr.sourcePortIdentity.clockIdentity.id,
 		       "\xaa\xaa\xaa\xff\xfe\xaa\xaa\xaa", 6);
 
-		recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(req_rx_ts);
-		ptp_set_type(&recv->hdr, PDELAY_RESP);
+		if (cfg->tstype == TS_P2P1STEP) {
+			recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(0);
+		} else {
+			recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(req_rx_ts);
+			corrField = recv->hdr.correction; // Use for resp-fup
+			recv->hdr.correction = 0; // Reset for resp
+		}
 
-		err = raw_send(e_sock, TRANS_EVENT, recv, ptp_msg_get_size(PDELAY_RESP), &hwts);
+		err = raw_send(e_sock, resp_event_type, recv, ptp_msg_get_size(PDELAY_RESP), &hwts);
 		if (err < 0) {
 			return -err;
 		}
+		if (cfg->tstype == TS_P2P1STEP)
+			continue;
 
-		resp_tx_ts = hwts.ts.ns;
+		resp_tx_ts = cfg->half_step ? 0 : hwts.ts.ns;
 		ptp_set_type(&recv->hdr, PDELAY_RESP_FUP);
 		recv->hdr.correction = corrField;
 		recv->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(resp_tx_ts);
@@ -240,6 +263,8 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 			return -err;
 		}
 	}
+
+	return 0;
 }
 
 int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
@@ -251,8 +276,10 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 	cfg->tstype = TS_HARDWARE;
 	cfg->domain = 0;
 	cfg->count = -1;
+	cfg->half_step = 0;
 
 	struct option long_options[] = { { "help", no_argument, NULL, 'h' },
+					 { "1.5step", no_argument, NULL, 1 },
 					 /*{ "transportSpecific", required_argument, NULL, 1 },*/
 					 { NULL, 0, NULL, 0 } };
 
@@ -261,8 +288,14 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "ESohi:c:D:v:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "PESoOhi:c:D:v:1", long_options, NULL)) != -1) {
 		switch (c) {
+		case 1:
+			cfg->half_step = 1;
+			break;
+		case 'P':
+			cfg->delay = DM_P2P;
+			break;
 		case 'E':
 			cfg->delay = DM_E2E;
 			break;
@@ -270,6 +303,9 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 			cfg->tstype = TS_SOFTWARE;
 			break;
 		case 'o':
+			cfg->tstype = TS_ONESTEP;
+			break;
+		case 'O':
 			cfg->tstype = TS_P2P1STEP;
 			break;
 		case 'i':
@@ -308,6 +344,9 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 			return 1;
 		}
 	}
+
+	if (cfg->half_step && cfg->tstype != TS_HARDWARE)
+		fprintf(stderr, "Warn: 1.5-step should only be used with two-step timestamping\n");
 
 	if (!cfg->interface) {
 		fprintf(stderr, "Error: missing input interface\n");
