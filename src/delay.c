@@ -18,6 +18,8 @@
  * - Set twoStepFlag correctly
  */
 
+extern int debugen;
+
 struct delay_cfg {
 	enum delay_mechanism delay;
 	enum timestamp_type tstype;
@@ -50,11 +52,6 @@ Options:\n\
         \n");
 }
 
-void print_ts(char *text, Integer64 ns)
-{
-	printf("%s: %ld.%ld\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
-}
-
 void increment_seq(struct ptp_header *hdr)
 {
 	hdr->sequenceId = htons(ntohs(hdr->sequenceId) + 1);
@@ -65,8 +62,8 @@ int msg_get_type(union Message *msg)
 	return msg->hdr.tsmt & 0xF;
 }
 
-int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type,
-		   union Message *msg, Integer64 *ns)
+int receive_packet(struct delay_cfg *cfg, int e_sock, int g_sock, struct timeval *tv,
+		   int expected_type, union Message *msg, Integer64 *ns)
 {
 	int nfds = e_sock > g_sock ? e_sock + 1 : g_sock + 1;
 	struct hw_timestamp hwts = { 0 };
@@ -78,6 +75,7 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 	FD_ZERO(&fds);
 	FD_SET(e_sock, &fds);
 	FD_SET(g_sock, &fds);
+	hwts.type = cfg->tstype;
 
 	while (1) {
 		res = select(nfds, &fds, 0, NULL, tv);
@@ -95,7 +93,7 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 				return err;
 			}
 			type = msg_get_type(msg);
-			if (!(type == expected_type)) {
+			if (type != expected_type) {
 				WARN("event: received wrong PTP type. Expected %s. Got %s",
 				     ptp_type2str(expected_type), ptp_type2str(type));
 				continue;
@@ -109,7 +107,7 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 				return err;
 			}
 			type = msg_get_type(msg);
-			if (!(type == expected_type)) {
+			if (type != expected_type) {
 				WARN("general: received wrong PTP type. Expected %s. Got %s",
 				     ptp_type2str(expected_type), ptp_type2str(type));
 				continue;
@@ -122,7 +120,7 @@ int receive_packet(int e_sock, int g_sock, struct timeval *tv, int expected_type
 int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 {
 	Integer64 pdelay_resp_fup_corr = 0;
-	struct timeval tv = { 0, 100000 };
+	struct timeval tv = { 1, 0 };
 	struct hw_timestamp hwts = { 0 };
 	Integer64 pdelay_resp_corr = 0;
 	unsigned char buf[1600];
@@ -160,7 +158,7 @@ int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 		}
 		t1 = hwts.ts.ns;
 
-		err = receive_packet(e_sock, g_sock, &tv, PDELAY_RESP, recv, &t4);
+		err = receive_packet(cfg, e_sock, g_sock, &tv, PDELAY_RESP, recv, &t4);
 		if (err < 0) {
 			return -err;
 		}
@@ -175,7 +173,7 @@ int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 		/* P2P1STEP has its compensation stored in  pdelay_resp_corr above.
 		 * t2 should be 0 in the pdelay_resp, and t3 is already set to 0*/
 		if (cfg->tstype != TS_P2P1STEP) {
-			err = receive_packet(e_sock, g_sock, &tv, PDELAY_RESP_FUP, recv, NULL);
+			err = receive_packet(cfg, e_sock, g_sock, &tv, PDELAY_RESP_FUP, recv, NULL);
 			if (err < 0) {
 				return -err;
 			}
@@ -189,7 +187,13 @@ int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 		}
 
 		pdelay = ((t4 - t1) - (t3 - t2) - pdelay_resp_corr - pdelay_resp_fup_corr) / 2;
-		printf("Pdelay %ld\n", pdelay);
+		DBG_print_ts("t1: ", t1);
+		DBG_print_ts("t2: ", t2);
+		DBG_print_ts("t3: ", t3);
+		DBG_print_ts("t4: ", t4);
+		DBG_print_ts("resp_corr: ", pdelay_resp_corr);
+		DBG_print_ts("resp_fup_corr: ", pdelay_resp_fup_corr);
+		printf("Pdelay %"PRId64"\n", pdelay);
 
 		seq++;
 		cfg->count--;
@@ -220,10 +224,11 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 		resp_event_type = TRANS_EVENT;
 
 	while (1) {
-		err = receive_packet(e_sock, g_sock, NULL, PDELAY_REQ, recv, &req_rx_ts);
+		err = receive_packet(cfg, e_sock, g_sock, NULL, PDELAY_REQ, recv, &req_rx_ts);
 		if (err < 0) {
 			return -err;
 		}
+
 
 		/* Two-step peer delay response. IEEE1588-2019, 11.4.2.
 		 * Section c), 7) uses option B: sending the timestamps back.
@@ -231,17 +236,21 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 		 * Maybe implement option A later.
 		 * */
 		ptp_set_type(&recv->hdr, PDELAY_RESP);
+		ptp_set_smac(&recv->hdr, "\x00\x00\x00\xbb\xbb\xbb");
 		memcpy(&recv->pdelay_resp.requestingPortIdentity, &recv->hdr.sourcePortIdentity,
 		       sizeof(struct PortIdentity));
 		// TODO: Set our own sourcePortIdentity
 		// TODO: Set twoStepFlag when doing two-step response
 		memcpy(&recv->hdr.sourcePortIdentity.clockIdentity.id,
-		       "\xaa\xaa\xaa\xff\xfe\xaa\xaa\xaa", 6);
+		       "\x00\x00\x00\xff\xfe\xbb\xbb\xbb", 6);
 
 		if (cfg->tstype == TS_P2P1STEP) {
 			recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(0);
 		} else {
-			recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(req_rx_ts);
+			if (!cfg->half_step)
+				recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(req_rx_ts);
+			else
+				recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(0);
 			corrField = recv->hdr.correction; // Use for resp-fup
 			recv->hdr.correction = 0; // Reset for resp
 		}
@@ -253,10 +262,20 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 		if (cfg->tstype == TS_P2P1STEP)
 			continue;
 
+		DBG_print_ts("req_rx: ", req_rx_ts);
+		DBG_print_ts("resp_tx: ", hwts.ts.ns);
+
+		if (cfg->half_step)
+			/* Allow the resp to send first to avoid out-of-order */
+			usleep(50000);
+
 		resp_tx_ts = cfg->half_step ? 0 : hwts.ts.ns;
 		ptp_set_type(&recv->hdr, PDELAY_RESP_FUP);
 		recv->hdr.correction = corrField;
-		recv->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(resp_tx_ts);
+		if (!cfg->half_step)
+			recv->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(resp_tx_ts);
+		else
+			recv->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(0);
 		err = raw_send(g_sock, TRANS_GENERAL, recv, ptp_msg_get_size(PDELAY_RESP_FUP),
 			       NULL);
 		if (err < 0) {
@@ -288,7 +307,7 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "PESoOhi:c:D:v:1", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "dPESoOhi:c:D:v:1", long_options, NULL)) != -1) {
 		switch (c) {
 		case 1:
 			cfg->half_step = 1;
@@ -327,9 +346,9 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 			else
 				printf("bad version input\n");
 			break;
-		/*case 'd':*/
-			/*debugen = 1;*/
-			/*break;*/
+		case 'd':
+			debugen = 1;
+			break;
 		case 'h':
 			delay_help();
 			return 1;
@@ -345,8 +364,8 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 		}
 	}
 
-	if (cfg->half_step && cfg->tstype != TS_HARDWARE)
-		fprintf(stderr, "Warn: 1.5-step should only be used with two-step timestamping\n");
+	if (cfg->half_step && cfg->tstype != TS_HARDWARE && cfg->tstype != TS_ONESTEP)
+		fprintf(stderr, "Warn: 1.5-step should only be used with two-step or one-step timestamping\n");
 
 	if (!cfg->interface) {
 		fprintf(stderr, "Error: missing input interface\n");

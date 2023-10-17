@@ -23,7 +23,8 @@
 
 #include <linux/if_ether.h>
 #include <linux/errqueue.h>
-#include <linux/net_tstamp.h>
+/*#include <linux/net_tstamp.h>*/
+#include "net_tstamp_cpy.h"
 #include <sys/ioctl.h>
 #include <linux/ptp_clock.h>
 #include <linux/limits.h>
