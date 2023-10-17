@@ -20,7 +20,8 @@
 
 #include <linux/if_ether.h>
 #include <linux/errqueue.h>
-#include <linux/net_tstamp.h>
+/*#include <linux/net_tstamp.h>*/
+#include "net_tstamp_cpy.h"
 
 #include "tstest.h"
 #include "liblink.h"
@@ -391,7 +392,8 @@ int run_pkt_mode(int argc, char **argv)
 	msg = (union Message*) buf;
 
 	hwts.type = tstype;
-	sock = open_socket(interface, 1, NULL, NULL, 0, 0);
+	hwts.ts.ns = 0;
+	sock = open_socket(interface, 1, ptp_dst_mac, p2p_dst_mac, 0, 1);
 	if (sock < 0) {
 		ERR_NO("failed to open socket");
 		return sock;
@@ -406,27 +408,37 @@ int run_pkt_mode(int argc, char **argv)
 	if (rx_only) {
 		while (1) {
 			sk_receive(sock, msg, 1600, NULL, &hwts, 0);
-			printf("%ld.%ld. Type %s\n",
-				hwts.ts.ns / NS_PER_SEC, hwts.ts.ns % NS_PER_SEC,
-				ptp_type2str(msg->hdr.tsmt & 0xF));
+			printf("Type: %s. ", ptp_type2str(msg->hdr.tsmt & 0xF));
+			print_ts("TS: ", hwts.ts.ns);
+			/*printf("%ld.%ld. Type %s\n",*/
+				/*hwts.ts.ns / NS_PER_SEC, hwts.ts.ns % NS_PER_SEC,*/
 		}
 	}
 
 	/*if (fully_send)*/
 	/*pthread_create(&receive_pkt, NULL, rcv_pkt, &sock);*/
 
-	enum transport_event event_type = ptp_type & 0x8 ? TRANS_GENERAL : TRANS_EVENT;
+	enum transport_event event_type;
+	if (one_step && !one_step_listen)
+		event_type = TRANS_ONESTEP;
+	else if (ptp_type & 0x8)
+		event_type = TRANS_GENERAL;
+	else
+		event_type = TRANS_EVENT;
 
 	while (count || nonstop_flag) {
 		/* write one packet */
 		/*sendpacket(sock, mac);*/
-		raw_send(sock, event_type, &message, ptp_msg_get_size(ptp_type), &hwts);
-		printf("%ld.%ld\n",
-			hwts.ts.ns / NS_PER_SEC, hwts.ts.ns % NS_PER_SEC);
+		err = raw_send(sock, event_type, &message, ptp_msg_get_size(ptp_type), &hwts);
+		print_ts("TS: ", hwts.ts.ns);
+		/*printf("%"PRId64".%"PRId64"\n",*/
+			/*hwts.ts.ns / NS_PER_SEC, hwts.ts.ns % NS_PER_SEC);*/
 		if (!nonstop_flag)
 			count--;
 		/*if (!fully_send) {*/
 		if (auto_fup) {
+			/* Allow the sync to send first to avoid out-of-order */
+			usleep(50000);
 			send_auto_fup(sock, ptp_type, seq, mac, transportSpecific, version, domain);
 		}
 		/*else {*/

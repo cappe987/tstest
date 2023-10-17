@@ -21,7 +21,8 @@
 
 #include <linux/if_ether.h>
 #include <linux/errqueue.h>
-#include <linux/net_tstamp.h>
+/*#include <linux/net_tstamp.h>*/
+#include "net_tstamp_cpy.h"
 #include <linux/sockios.h>
 #include <linux/filter.h>
 
@@ -184,6 +185,8 @@ static void printpacket(struct msghdr *msg, int res, int recvmsg_flags)
 			case SO_TIMESTAMPING: {
 				struct timespec *stamp = (struct timespec *)CMSG_DATA(cmsg);
 				DEBUG("SO_TIMESTAMPING ");
+				printf("  SW raw %ld.%09ld\n", (long)stamp->tv_sec,
+				       (long)stamp->tv_nsec);
 				stamp++;
 				/* skip deprecated HW transformed */
 				stamp++;
@@ -328,7 +331,7 @@ void setsockopt_txtime(int fd)
 static inline tmv_t timespec_to_tmv(struct timespec ts)
 {
 	tmv_t t;
-	t.ns = ts.tv_sec * NS_PER_SEC + ts.tv_nsec;
+	t.ns = (int64_t)ts.tv_sec * NS_PER_SEC + (int64_t)ts.tv_nsec;
 	return t;
 }
 
@@ -378,6 +381,7 @@ static int hwts_init(int fd, const char *device, int rx_filter, int rx_filter2, 
 	case HWTS_FILTER_FULL:
 		cfg.tx_type = tx_type;
 		cfg.rx_filter = HWTSTAMP_FILTER_ALL;
+		cfg.clk_type  = 2; // FIXME: clk_type;
 		err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
 		if (err < 0) {
 			ERR("ioctl SIOCSHWTSTAMP failed: %m");
@@ -387,6 +391,7 @@ static int hwts_init(int fd, const char *device, int rx_filter, int rx_filter2, 
 	case HWTS_FILTER_NORMAL:
 		cfg.tx_type = tx_type;
 		cfg.rx_filter = orig_rx_filter = rx_filter;
+		cfg.clk_type  = 2; //FIXME: clk_type;
 		err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
 		if (err < 0) {
 			printf("warning: driver rejected most general HWTSTAMP filter\n");
@@ -840,4 +845,14 @@ no_option:
 	close(fd);
 no_socket:
 	return -1;
+}
+
+void print_ts(char *text, int64_t ns)
+{
+	printf("%s%"PRId64".%09"PRId64"\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
+}
+
+void DBG_print_ts(char *text, int64_t ns)
+{
+	DEBUG("%s: %"PRId64".%09"PRId64"\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
 }
