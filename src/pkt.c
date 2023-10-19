@@ -151,7 +151,7 @@ int run_pkt_mode(int argc, char **argv)
 
 	str2mac("ff:ff:ff:ff:ff:ff", mac);
 
-	while ((c = getopt_long(argc, argv, "StrapdfD:hoOi:m:c:s:T:v:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "StrapdfDl:hoOi:m:c:s:T:v:", long_options, NULL)) != -1) {
 		switch (c) {
 		case 1:
 			transportSpecific = strtoul(optarg, NULL, 0);
@@ -178,6 +178,10 @@ int run_pkt_mode(int argc, char **argv)
 			tstype = TS_ONESTEP;
 			break;
 		case 'O':
+			one_step = 1;
+			tstype = TS_P2P1STEP;
+			break;
+		case 'l':
 			tstype = TS_ONESTEP;
 			one_step_listen = 1;
 			break;
@@ -420,7 +424,7 @@ int run_pkt_mode(int argc, char **argv)
 
 	enum transport_event event_type;
 	if (one_step && !one_step_listen)
-		event_type = TRANS_ONESTEP;
+		event_type = tstype == TS_P2P1STEP ? TRANS_P2P1STEP : TRANS_ONESTEP;
 	else if (ptp_type & 0x8)
 		event_type = TRANS_GENERAL;
 	else
