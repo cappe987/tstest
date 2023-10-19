@@ -220,6 +220,8 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 
 	if (cfg->half_step)
 		resp_event_type = TRANS_ONESTEP;
+	else if (cfg->tstype == TS_P2P1STEP)
+		resp_event_type = TRANS_P2P1STEP;
 	else
 		resp_event_type = TRANS_EVENT;
 
@@ -245,6 +247,7 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 		       "\x00\x00\x00\xff\xfe\xbb\xbb\xbb", 6);
 
 		if (cfg->tstype == TS_P2P1STEP) {
+			ptp_set_flags(&recv->hdr, 0);
 			recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(0);
 		} else {
 			if (!cfg->half_step)
