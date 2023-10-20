@@ -6,18 +6,15 @@ A tool to test the functionalities required by Linuxptp in a controlled manner.
 Rather than running the complex daemons you can use tstest to try out one
 functionality at a time. Great for debugging purposes.
 
-Currently supports:
-- Sending timestamped packets of different PTP types and one-step. Note that
-  some PTP types are not expected to be timestamped.
-- Receiving timestamped packets
-
+## Features
+- `tstest pkt` can send and receive individual packets with timestamps.
+- `tstest delay` can perform basic peer delay measurement.
+- `tstest extts` can listen to EXTTS events from the kernel.
 
 
 ## TODO
-- Don't expect TX timestamp when sending non-event PTP types (e.g. announce),
-  unless in -a mode.
-- Add EXTTS support
 - Add PPS configuration
+- Add E2E delay
 
 
 ## Credit
