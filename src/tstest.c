@@ -2,10 +2,7 @@
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <errno.h>
-#include <unistd.h>
 
 #include "version.h"
 #include "tstest.h"

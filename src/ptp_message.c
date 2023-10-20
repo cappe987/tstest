@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
-#include <string.h>
-#include <arpa/inet.h>
-
-#include "tstest.h"
 #include "timestamping.h"
+#include "tstest.h"
 
 struct ptp_header ptp_header_template()
 {
