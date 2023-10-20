@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
+name: CI
+
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+jobs:
+  build:
+    name: Build x86
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=RELEASE ..
+      - name: Build
+        run: |
+          cd build
+          make
+      #- name: Install test dependencies
+        #run: |
+          #sudo apt install tshark
+          #sudo apt install tcpdump
+      - name: Test
+        run: |
+          cd build
+          make test
+  build-aarch64:
+    name: Build aarch64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Installing dependencies
+        run: |
+          sudo apt install gcc-aarch64-linux-gnu
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake -DCMAKE_C_COMPILTER=/usr/bin/aarch64-linux-gnu-gcc -DCMAKE_BUILD_TYPE=RELEASE ..
+      - name: Build
+        run: |
+          cd build
+          make
+  build-arm:
+    name: Build arm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Installing dependencies
+        run: |
+          sudo apt install gcc-arm-linux-gnueabi
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake -DCMAKE_C_COMPILTER=/usr/bin/arm-linux-gnueabi-gcc -DCMAKE_BUILD_TYPE=RELEASE ..
+      - name: Build
+        run: |
+          cd build
+          make
+
