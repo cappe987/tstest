@@ -71,7 +71,9 @@ Options:\n\
         -t TX only mode \n\
         -r RX only mode \n\
         -a Timestamp all packets \n\
+        -D Domain \n\
         -o Use one-step timestamping \n\
+        -O Use p2p-one-step timestamping \n\
         -s <sequence id> \n\
         -m <destination MAC> \n\
         -c <frame counts> \n\
