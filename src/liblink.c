@@ -2,17 +2,13 @@
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
 #include <linux/if_ether.h>
-
-#include <net/if.h>
 #include <netinet/ip.h>
-#include <unistd.h>
-/*#include <stdlib.h>*/
-#include <stdio.h>
-#include <string.h>
 #include <sys/ioctl.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdio.h>
 #include <errno.h>
-/*#include <netinet/in.h>*/
-/*#include <sys/socket.h>*/
 
 #include "liblink.h"
 /* Get the index of the interface to send on */

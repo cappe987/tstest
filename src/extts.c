@@ -4,37 +4,22 @@
 
 #define _GNU_SOURCE
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <string.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <sys/select.h>
-#include <sys/ioctl.h>
-#include <arpa/inet.h>
-#include <net/if.h>
-#include <getopt.h>
-#include <netpacket/packet.h>
-
-#include <asm/types.h>
-
-#include <linux/if_ether.h>
-#include <linux/errqueue.h>
-/*#include <linux/net_tstamp.h>*/
-#include "net_tstamp_cpy.h"
-#include <sys/ioctl.h>
 #include <linux/ptp_clock.h>
 #include <linux/limits.h>
-#include <sys/timex.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <pthread.h>
+#include <getopt.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <stdio.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
-#include <signal.h>
-#include <linux/ethtool.h>
-#include <linux/sockios.h>
+
+#include "net_tstamp_cpy.h"
 
 #include "version.h"
 

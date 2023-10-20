@@ -5,12 +5,12 @@
 #ifndef __TSTEST_TIMESTAMPING_H__
 #define __TSTEST_TIMESTAMPING_H__
 
-#include <time.h>
+#include <netpacket/packet.h>
+#include <linux/if_ether.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 #include <inttypes.h>
 #include <sys/un.h>
-#include <sys/socket.h>
-#include <netpacket/packet.h>
-#include <netinet/in.h>
 
 /* A lot taken from Linuxptp project */
 

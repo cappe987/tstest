@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
-#include <errno.h>
-#include <endian.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <errno.h>
 
 #include "timestamping.h"
-#include "tstest.h"
 #include "liblink.h"
+#include "tstest.h"
 
 /* TODO:
  * - Implement mmedian_sample delay filter (ptp4l delay_filter)
@@ -193,7 +192,7 @@ int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 		DBG_print_ts("t4: ", t4);
 		DBG_print_ts("resp_corr: ", pdelay_resp_corr);
 		DBG_print_ts("resp_fup_corr: ", pdelay_resp_fup_corr);
-		printf("Pdelay %"PRId64"\n", pdelay);
+		printf("Pdelay %" PRId64 "\n", pdelay);
 
 		seq++;
 		cfg->count--;
@@ -231,7 +230,6 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 			return -err;
 		}
 
-
 		/* Two-step peer delay response. IEEE1588-2019, 11.4.2.
 		 * Section c), 7) uses option B: sending the timestamps back.
 		 * Option A is to add the residence time to correction field.
@@ -251,7 +249,8 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 			recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(0);
 		} else {
 			if (!cfg->half_step)
-				recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(req_rx_ts);
+				recv->pdelay_resp.requestReceiptTimestamp =
+					ns_to_be_timestamp(req_rx_ts);
 			else
 				recv->pdelay_resp.requestReceiptTimestamp = ns_to_be_timestamp(0);
 			corrField = recv->hdr.correction; // Use for resp-fup
@@ -276,7 +275,8 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 		ptp_set_type(&recv->hdr, PDELAY_RESP_FUP);
 		recv->hdr.correction = corrField;
 		if (!cfg->half_step)
-			recv->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(resp_tx_ts);
+			recv->pdelay_resp_fup.responseOriginTimestamp =
+				ns_to_be_timestamp(resp_tx_ts);
 		else
 			recv->pdelay_resp_fup.responseOriginTimestamp = ns_to_be_timestamp(0);
 		err = raw_send(g_sock, TRANS_GENERAL, recv, ptp_msg_get_size(PDELAY_RESP_FUP),
@@ -368,7 +368,8 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 	}
 
 	if (cfg->half_step && cfg->tstype != TS_HARDWARE && cfg->tstype != TS_ONESTEP)
-		fprintf(stderr, "Warn: 1.5-step should only be used with two-step or one-step timestamping\n");
+		fprintf(stderr,
+			"Warn: 1.5-step should only be used with two-step or one-step timestamping\n");
 
 	if (!cfg->interface) {
 		fprintf(stderr, "Error: missing input interface\n");
@@ -393,14 +394,20 @@ int run_delay_mode(int argc, char **argv)
 		client_mode = 1;
 	} else if (strcmp(argv[1], "server") == 0) {
 		client_mode = 0;
+	} else if (strcmp(argv[1], "-h") == 0) {
+		delay_help();
+		return EINVAL;
 	} else {
 		ERR("expected 'client' or 'server' mode");
+		delay_help();
 		return EINVAL;
 	}
 	argc--;
 	argv = &argv[1];
 
-	delay_parse_opt(argc, argv, &cfg);
+	err = delay_parse_opt(argc, argv, &cfg);
+	if (err)
+		return err;
 
 	e_sock = open_socket(cfg.interface, 1, ptp_dst_mac, p2p_dst_mac, 0, 1);
 	if (e_sock < 0)

@@ -4,7 +4,6 @@
 #ifndef __TS_TEST_H__
 #define __TS_TEST_H__
 
-#include <stdint.h>
 #include <string.h>
 #include <arpa/inet.h>
 #include <linux/if_ether.h>
@@ -217,11 +216,6 @@ struct sync_msg create_sync(struct ptp_header hdr);
 union Message ptp_msg_create_type(struct ptp_header hdr, Octet type);
 struct Timestamp ns_to_be_timestamp(Integer64 ns);
 Integer64 be_timestamp_to_ns(struct Timestamp ts);
-
-/* timestamping.c */
-void sendpacket(int sock, unsigned char *mac);
-void setsockopt_txtime(int fd);
-void rcv_pkt(int sock);
 
 static void ptp_set_dmac(struct ptp_header *hdr, Octet dmac[ETH_ALEN])
 {
