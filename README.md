@@ -15,6 +15,9 @@ functionality at a time. Great for debugging purposes.
 ## TODO
 - Add PPS configuration
 - Add E2E delay
+- Idea: `tstest check` mode that takes a config file of actions it should check
+  (send, receive, verify values). Should be run with a looped cable, else it
+  would require two instances (which might be an option too).
 
 
 ## Credit
