@@ -207,24 +207,34 @@ union Message ptp_msg_create_type(struct ptp_header hdr, Octet type)
 	switch (type) {
 	case SYNC:
 		msg.sync = create_sync(hdr);
+		break;
 	case DELAY_REQ:
 		msg.delay_req = create_delay_req(hdr);
+		break;
 	case FOLLOW_UP:
 		msg.follow_up = create_follow_up(hdr);
+		break;
 	case DELAY_RESP:
 		msg.delay_resp = create_delay_resp(hdr);
+		break;
 	case MANAGEMENT:
 		msg.management = create_management(hdr);
+		break;
 	case PDELAY_REQ:
 		msg.pdelay_req = create_pdelay_req(hdr);
+		break;
 	case PDELAY_RESP:
 		msg.pdelay_resp = create_pdelay_resp(hdr);
+		break;
 	case PDELAY_RESP_FUP:
 		msg.pdelay_resp_fup = create_pdelay_resp_fup(hdr);
+		break;
 	case ANNOUNCE:
 		msg.announce = create_announce(hdr);
+		break;
 	case SIGNALING:
 		msg.signaling = create_signaling(hdr);
+		break;
 	}
 	return msg;
 }
