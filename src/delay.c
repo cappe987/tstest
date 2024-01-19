@@ -17,8 +17,6 @@
  * - Set twoStepFlag correctly
  */
 
-extern int debugen;
-
 struct delay_cfg {
 	enum delay_mechanism delay;
 	enum timestamp_type tstype;

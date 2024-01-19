@@ -40,6 +40,8 @@ int main(int argc, char **argv)
 		return run_extts_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "delay") == 0)
 		return run_delay_mode(argc - 1, &argv[1]);
+	else if (strcmp(argv[1], "check") == 0)
+		return run_check_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "version") == 0)
 		return tstest_version();
 	else
