@@ -113,33 +113,25 @@ int check_software_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 	int64_t ns;
 	int err;
 
-	cfg->transportSpecific = 0;
-	cfg->onestep = 0;
-	cfg->version = 2 | (1 << 4);
-	cfg->domain = 0;
 	cfg->tstype = TS_SOFTWARE;
-	cfg->seq = 0;
-	cfg->listen = 1;
-	cfg->twoStepFlag = 1;
-	/*str2mac("ff:ff:ff:ff:ff:ff", cfg->mac);*/
-	str2mac("01:1B:19:00:00:00", cfg->mac);
-	/*str2mac("01:80:c2:00:00:0E", cfg->mac);*/
-	/*memcpy(cfg->mac, buf, ETH_ALEN);*/
  
 	err = setup_sockets(cfg, tx_iface, rx_iface, &txsock, &rxsock);
 	if (err)
 		return err;
 
-	err = 0;
+	str2mac("01:1B:19:00:00:00", cfg->mac);
 	err |= check_type(cfg, txsock, rxsock, SYNC,        1, 1);
 	err |= check_type(cfg, txsock, rxsock, DELAY_REQ,   1, 1);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,  1, 1);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP, 1, 1);
 	err |= check_type(cfg, txsock, rxsock, FOLLOW_UP,   1, 1);
 	err |= check_type(cfg, txsock, rxsock, DELAY_RESP,  1, 1);
 	err |= check_type(cfg, txsock, rxsock, ANNOUNCE,    1, 1);
 	err |= check_type(cfg, txsock, rxsock, SIGNALING,   1, 1);
 	err |= check_type(cfg, txsock, rxsock, MANAGEMENT,  1, 1);
+
+	str2mac("01:80:c2:00:00:0E", cfg->mac);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,  1, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP, 1, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 1, 1);
 
 	print_result(err);
 	return err;
@@ -150,34 +142,25 @@ int check_hardware_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 	int64_t ns;
 	int err;
 
-	cfg->transportSpecific = 0;
-	cfg->onestep = 0;
-	cfg->version = 2 | (1 << 4);
-	cfg->domain = 0;
 	cfg->tstype = TS_HARDWARE;
-	cfg->seq = 0;
-	cfg->listen = 1;
-	cfg->twoStepFlag = 1;
-	/*str2mac("ff:ff:ff:ff:ff:ff", cfg->mac);*/
-	str2mac("01:1B:19:00:00:00", cfg->mac);
-	/*str2mac("01:80:c2:00:00:0E", cfg->mac);*/
-	/*memcpy(cfg->mac, buf, ETH_ALEN);*/
  
 	err = setup_sockets(cfg, tx_iface, rx_iface, &txsock, &rxsock);
 	if (err)
 		return err;
 
-	err = 0;
+	str2mac("01:1B:19:00:00:00", cfg->mac);
 	err |= check_type(cfg, txsock, rxsock, SYNC,            1, 1);
 	err |= check_type(cfg, txsock, rxsock, DELAY_REQ,       1, 1);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     1, 1);
 	err |= check_type(cfg, txsock, rxsock, FOLLOW_UP,       0, 0);
 	err |= check_type(cfg, txsock, rxsock, DELAY_RESP,      0, 0);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
 	err |= check_type(cfg, txsock, rxsock, ANNOUNCE,        0, 0);
 	err |= check_type(cfg, txsock, rxsock, SIGNALING,       0, 0);
 	err |= check_type(cfg, txsock, rxsock, MANAGEMENT,      0, 0);
+
+	str2mac("01:80:c2:00:00:0E", cfg->mac);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     1, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
 
 	print_result(err);
 	return err;
@@ -188,36 +171,25 @@ int check_onestep_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
 	int64_t ns;
 	int err;
 
-	cfg->transportSpecific = 0;
-	cfg->onestep = 1;
-	cfg->version = 2 | (1 << 4);
-	cfg->domain = 0;
 	cfg->tstype = TS_ONESTEP;
-	cfg->seq = 0;
-	cfg->listen = 1;
-	/*cfg->twoStepFlag = 1;*/
-	/*str2mac("ff:ff:ff:ff:ff:ff", cfg->mac);*/
-	str2mac("01:1B:19:00:00:00", cfg->mac);
-	/*str2mac("01:80:c2:00:00:0E", cfg->mac);*/
-	/*memcpy(cfg->mac, buf, ETH_ALEN);*/
  
 	err = setup_sockets(cfg, tx_iface, rx_iface, &txsock, &rxsock);
 	if (err)
 		return err;
 
-	err = 0;
-	cfg->twoStepFlag = 0;
+	str2mac("01:1B:19:00:00:00", cfg->mac);
 	err |= check_type(cfg, txsock, rxsock, SYNC,            0, 1);
-	cfg->twoStepFlag = 1;
 	err |= check_type(cfg, txsock, rxsock, DELAY_REQ,       1, 1);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     1, 1);
 	err |= check_type(cfg, txsock, rxsock, FOLLOW_UP,       0, 0);
 	err |= check_type(cfg, txsock, rxsock, DELAY_RESP,      0, 0);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
 	err |= check_type(cfg, txsock, rxsock, ANNOUNCE,        0, 0);
 	err |= check_type(cfg, txsock, rxsock, SIGNALING,       0, 0);
 	err |= check_type(cfg, txsock, rxsock, MANAGEMENT,      0, 0);
+
+	str2mac("01:80:c2:00:00:0E", cfg->mac);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     1, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
 
 	print_result(err);
 	return err;
@@ -228,35 +200,24 @@ int check_p2p1step_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 	int64_t ns;
 	int err;
 
-	cfg->transportSpecific = 0;
-	cfg->onestep = 1;
-	cfg->version = 2 | (1 << 4);
-	cfg->domain = 0;
-	cfg->tstype = TS_ONESTEP;
-	cfg->seq = 0;
-	cfg->listen = 1;
-	/*cfg->twoStepFlag = 1;*/
-	/*str2mac("ff:ff:ff:ff:ff:ff", cfg->mac);*/
-	str2mac("01:1B:19:00:00:00", cfg->mac);
-	/*str2mac("01:80:c2:00:00:0E", cfg->mac);*/
-	/*memcpy(cfg->mac, buf, ETH_ALEN);*/
- 
+	cfg->tstype = TS_P2P1STEP;
 	err = setup_sockets(cfg, tx_iface, rx_iface, &txsock, &rxsock);
 	if (err)
 		return err;
 
-	err = 0;
-	cfg->twoStepFlag = 0;
+	str2mac("01:1B:19:00:00:00", cfg->mac);
 	err |= check_type(cfg, txsock, rxsock, SYNC,            0, 1);
 	/*err |= check_type(cfg, txsock, rxsock, DELAY_REQ,       1, 1);*/
-	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     0, 1);
 	err |= check_type(cfg, txsock, rxsock, FOLLOW_UP,       0, 0);
 	err |= check_type(cfg, txsock, rxsock, DELAY_RESP,      0, 0);
-	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
 	err |= check_type(cfg, txsock, rxsock, ANNOUNCE,        0, 0);
 	err |= check_type(cfg, txsock, rxsock, SIGNALING,       0, 0);
 	err |= check_type(cfg, txsock, rxsock, MANAGEMENT,      0, 0);
+
+	str2mac("01:80:c2:00:00:0E", cfg->mac);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     0, 1);
+	err |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
 
 	print_result(err);
 	return err;
@@ -265,6 +226,12 @@ int check_p2p1step_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 int run_check_mode(int argc, char **argv) {
 
 	struct pkt_cfg cfg = { 0 };
+
+	cfg.transportSpecific = 0;
+	cfg.version = 2 | (1 << 4);
+	cfg.domain = 0;
+	cfg.seq = 0;
+	cfg.listen = 1;
 
 	return check_software_timestamp(&cfg, "veth1", "veth2");
 }

@@ -6,12 +6,10 @@ struct pkt_cfg {
 	//int so_timestamping_flags;
 	int transportSpecific;
 	int twoStepFlag_set;
-	int onestep_listen;
 	int nonstop_flag;
 	int twoStepFlag;
 	int tstamp_all;
 	int auto_fup;
-	int onestep;
 	int rx_only;
 	int version;
 	int listen;
