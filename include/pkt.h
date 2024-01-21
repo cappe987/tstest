@@ -1,4 +1,5 @@
-
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
 
 #define SEQUENCE_MAX 100
 
