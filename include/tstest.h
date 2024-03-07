@@ -8,6 +8,8 @@
 #include <arpa/inet.h>
 #include <linux/if_ether.h>
 
+extern int debugen;
+
 typedef int Boolean;
 typedef uint8_t Enumeration8;
 typedef uint16_t Enumeration16;
@@ -205,6 +207,9 @@ int run_extts_mode(int argc, char **argv);
 
 /* delay.c */
 int run_delay_mode(int argc, char **argv);
+
+/* check.c */
+int run_check_mode(int argc, char **argv);
 
 /* ptp_message.c */
 int str2ptp_type(const char *str);

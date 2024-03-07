@@ -13,6 +13,7 @@
 #include "timestamping.h"
 #include "liblink.h"
 #include "tstest.h"
+#include "pkt.h"
 
 /* TODO:
  * - Fix tstamp-all
@@ -38,33 +39,6 @@ int pkt_running = 1;
 #define SIOCSHWTSTAMP 0x89b0
 #endif
 
-#define SEQUENCE_MAX 100
-
-extern int debugen;
-
-struct pkt_cfg {
-	int so_timestamping_flags;
-	int transportSpecific;
-	int twoStepFlag_set;
-	int onestep_listen;
-	int nonstop_flag;
-	int twoStepFlag;
-	int tstamp_all;
-	int auto_fup;
-	int onestep;
-	int rx_only;
-	int version;
-	int listen;
-	int domain;
-	int tstype;
-	int count;
-	int seq;
-	char mac[ETH_ALEN];
-	char *interface;
-	int sequence_types[SEQUENCE_MAX];
-	int sequence_length;
-};
-
 void pkt_help()
 {
 	fprintf(stderr, "\n--- TSTest Packets ---\n\n");
@@ -79,6 +53,7 @@ Options:\n\
         -D <domain>. PTP domain number\n\
         -o Use one-step timestamping\n\
         -O Use p2p-one-step timestamping\n\
+        -S Use sofware timestamping\n\
         -s <sequence id>. Start PTP sequence ID at this value.\n\
         -m <destination MAC>\n\
         -c <frame counts>. Set to 0 to send until stopped\n\
@@ -96,7 +71,7 @@ static void sig_handler(int sig)
 	pkt_running = 0;
 }
 
-void set_two_step_flag(struct pkt_cfg *cfg, struct ptp_header *hdr, int type)
+static void set_two_step_flag(struct pkt_cfg *cfg, struct ptp_header *hdr, int type)
 {
 	int twoStepFlag = 0x00;
 
@@ -116,7 +91,7 @@ void set_two_step_flag(struct pkt_cfg *cfg, struct ptp_header *hdr, int type)
 	ptp_set_flags(hdr, twoStepFlag);
 }
 
-int get_event_type(struct pkt_cfg *cfg, int type)
+static int get_event_type(struct pkt_cfg *cfg, int type)
 {
 	if (cfg->listen == 1) // Force listen
 		return TRANS_EVENT;
@@ -135,7 +110,7 @@ int get_event_type(struct pkt_cfg *cfg, int type)
 		return TRANS_EVENT; // Timestamp rest
 }
 
-int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts)
+int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts, int64_t *ns)
 {
 	struct ptp_header hdr;
 	union Message tx_msg;
@@ -157,12 +132,23 @@ int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp 
 	event_type = get_event_type(cfg, type);
 
 	err = raw_send(sock, event_type, &tx_msg, ptp_msg_get_size(type), hwts);
-	print_ts("TS: ", hwts->ts.ns);
+	*ns = hwts->ts.ns;
 	hwts->ts.ns = 0;
 	return err;
 }
 
-int send_auto_fup(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts)
+static int send_print(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts)
+{
+	enum transport_event event_type;
+	int64_t ns;
+	int err;
+
+	err = build_and_send(cfg, sock, type, hwts, &ns);
+	print_ts("TS: ", ns);
+	return err;
+}
+
+static int send_auto_fup(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts)
 {
 	struct ptp_header hdr;
 	union Message msg;
@@ -176,10 +162,10 @@ int send_auto_fup(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *
 	else
 		return -EINVAL;
 
-	return build_and_send(cfg, sock, ptp_type, hwts);
+	return send_print(cfg, sock, ptp_type, hwts);
 }
 
-int tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
+static int tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 {
 	int type;
 	int i;
@@ -187,7 +173,7 @@ int tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 	while (cfg->count || cfg->nonstop_flag) {
 		for (i = 0; i < cfg->sequence_length; i++) {
 			type = cfg->sequence_types[i];
-			build_and_send(cfg, sock, type, hwts);
+			send_print(cfg, sock, type, hwts);
 			if (cfg->auto_fup && (type == SYNC || type == PDELAY_RESP)) {
 				/* Allow the sync to send first to avoid out-of-order */
 				usleep(50000);
@@ -201,7 +187,7 @@ int tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 	}
 }
 
-int rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
+static int rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 {
 	unsigned char buf[1600];
 	union Message *rx_msg;
@@ -215,7 +201,7 @@ int rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 	}
 }
 
-int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
+static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 {
 	int type;
 	int c;
