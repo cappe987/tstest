@@ -41,3 +41,40 @@ add_custom_target(test
 # ============= Configure ===============
 configure_file(include/version.h.in include/version.h)
 
+
+#project(tcalign VERSION 1.0)
+##set(PROJECT_NAME_VERSION "${CMAKE_PROJECT_NAME}-${CMAKE_PROJECT_VERSION}")
+
+
+## ---- PROJECT SETUP ----
+##set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wpedantic -Wextra")
+
+## ---- BUILD ----
+#find_library (LIBNL_LIBRARY nl-3)
+#find_library (LIBNL_GENL_LIBRARY nl-genl-3)
+
+#set(LIBNL_LIBRARIES ${LIBNL_LIBRARY} ${LIBNL_GENL_LIBRARY})
+#set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+##set(CMAKE_C_FLAGS
+	##"${CMAKE_C_FLAGS} -Wall -Wpedantic -Wextra"
+##)
+
+#find_path (LIBNL_INCLUDE_DIR NAMES netlink/netlink.h PATH_SUFFIXES libnl3)
+#include_directories(include ${LIBNL_INCLUDE_DIR})
+
+
+
+
+#add_executable(tcalign)
+#target_sources(tcalign PRIVATE src/tcalign.c)
+
+#install(TARGETS tcalign
+	#CONFIGURATIONS Debug
+	#RUNTIME DESTINATION bin)
+#install(TARGETS tcalign
+	#CONFIGURATIONS Release
+	#RUNTIME DESTINATION bin)
+
+#target_link_libraries(tcalign PUBLIC gpiod ${LIBNL_LIBRARIES})
+

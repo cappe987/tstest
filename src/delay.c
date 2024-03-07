@@ -13,7 +13,7 @@
 
 /* TODO:
  * - Implement mmedian_sample delay filter (ptp4l delay_filter)
- * - Implement E2E
+
  * - Set twoStepFlag correctly
  */
 
@@ -342,9 +342,9 @@ int delay_parse_opt(int argc, char **argv, struct delay_cfg *cfg)
 		case 'v':
 			if (optarg == NULL)
 				printf("bad version input\n");
-			else if (strncmp(optarg, "2.1", 3) == 0)
+			else if (strncmp(optarg, "2.1", 3) == 0 && strlen(optarg) == 3)
 				cfg->version = 2 | (1 << 4);
-			else if (strncmp(optarg, "2", 1) == 0)
+			else if (strncmp(optarg, "2", 1) == 0 && strlen(optarg) == 1)
 				cfg->version = 2;
 			else
 				printf("bad version input\n");

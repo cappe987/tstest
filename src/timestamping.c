@@ -290,6 +290,11 @@ int raw_send(int fd, enum transport_event event, void *buf, int len, struct hw_t
 	return event == TRANS_EVENT ? sk_receive(fd, pkt, len, NULL, hwts, MSG_ERRQUEUE) : cnt;
 }
 
+int sk_timestamping_destroy(int fd, const char *device)
+{
+	return hwts_init(fd, device, 0, 0, HWTSTAMP_TX_OFF);
+}
+
 int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 			 enum transport_type transport, int vclock)
 {

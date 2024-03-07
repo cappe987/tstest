@@ -119,6 +119,7 @@ static unsigned char p2p_dst_mac[] = { 0x01, 0x80, 0xC2, 0x00, 0x00, 0x0E };
 int sk_receive(int fd, void *buf, int buflen, struct address *addr, struct hw_timestamp *hwts,
 	       int flags);
 int raw_send(int fd, enum transport_event event, void *buf, int len, struct hw_timestamp *hwts);
+int sk_timestamping_destroy(int fd, const char *device);
 int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 			 enum transport_type transport, int vclock);
 //int socket_init_raw(char *interface);

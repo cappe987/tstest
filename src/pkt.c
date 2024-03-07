@@ -6,6 +6,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "net_tstamp_cpy.h"
 
@@ -17,6 +18,8 @@
  * - Fix tstamp-all
  *
  */
+
+int pkt_running = 1;
 
 #ifndef SO_TIMESTAMPING
 #define SO_TIMESTAMPING 37
@@ -81,10 +84,16 @@ Options:\n\
         -c <frame counts>. Set to 0 to send until stopped\n\
 	-l <0|1>. 0: Never fetch timestamp. 1: Always fetch timestamp (even for types that might not have)\n\
         -d Enable debug output\n\
+	-v <2|2.1> PTP version of the packet\n\
         -h help\n\
 	--transportSpecific <value>. Set value for the transportSpecific field\n\
 	--twoStepFlag <0|1>. Force if twoStepFlag should be set or not. Default is automatic\n\
         \n");
+}
+
+static void sig_handler(int sig)
+{
+	pkt_running = 0;
 }
 
 void set_two_step_flag(struct pkt_cfg *cfg, struct ptp_header *hdr, int type)
@@ -199,7 +208,7 @@ int rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 
 	rx_msg = (union Message *)buf;
 
-	while (1) {
+	while (pkt_running) {
 		sk_receive(sock, rx_msg, 1600, NULL, hwts, 0);
 		printf("Type: %s. ", ptp_type2str(rx_msg->hdr.tsmt & 0xF));
 		print_ts("TS: ", hwts->ts.ns);
@@ -353,6 +362,8 @@ int run_pkt_mode(int argc, char **argv)
 		/*return EINVAL;*/
 	/*}*/
 
+	signal(SIGINT, sig_handler);
+
 	if (!cfg.count)
 		cfg.nonstop_flag = 1;
 
@@ -378,6 +389,8 @@ int run_pkt_mode(int argc, char **argv)
 		rx_mode(&cfg, sock, &hwts);
 	else
 		tx_mode(&cfg, sock, &hwts);
+
+	sk_timestamping_destroy(sock, cfg.interface);
 
 	return 0;
 }
