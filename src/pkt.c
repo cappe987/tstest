@@ -17,7 +17,6 @@
 
 /* TODO:
  * - Fix tstamp-all
- *
  */
 
 int pkt_running = 1;
@@ -120,7 +119,7 @@ int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp 
 	hdr = ptp_header_template();
 	ptp_set_type(&hdr, type);
 	ptp_set_seqId(&hdr, cfg->seq);
-	ptp_set_dmac(&hdr, cfg->mac);
+	ptp_set_dmac(&hdr, (unsigned char *)cfg->mac);
 	ptp_set_transport_specific(&hdr, cfg->transportSpecific);
 	ptp_set_version(&hdr, cfg->version);
 	ptp_set_domain(&hdr, cfg->domain);
@@ -165,7 +164,7 @@ static int send_auto_fup(struct pkt_cfg *cfg, int sock, int type, struct hw_time
 	return send_print(cfg, sock, ptp_type, hwts);
 }
 
-static int tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
+static void tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 {
 	int type;
 	int i;
@@ -187,15 +186,24 @@ static int tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 	}
 }
 
-static int rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
+static void rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 {
 	unsigned char buf[1600];
 	union Message *rx_msg;
+	struct timeval timeout;
+	int cnt;
 
 	rx_msg = (union Message *)buf;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 10000;
+
+    if (setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0)
+        ERR("setsockopt failed: %m\n");
 
 	while (pkt_running) {
-		sk_receive(sock, rx_msg, 1600, NULL, hwts, 0);
+		cnt = sk_receive(sock, rx_msg, 1600, NULL, hwts, 0);
+		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
+		  continue;
 		printf("Type: %s. ", ptp_type2str(rx_msg->hdr.tsmt & 0xF));
 		print_ts("TS: ", hwts->ts.ns);
 	}
@@ -376,7 +384,8 @@ int run_pkt_mode(int argc, char **argv)
 	else
 		tx_mode(&cfg, sock, &hwts);
 
-	sk_timestamping_destroy(sock, cfg.interface);
+	if (cfg.tstype != TS_SOFTWARE) // No teardown needed for SW timestamping
+		sk_timestamping_destroy(sock, cfg.interface);
 
 	return 0;
 }

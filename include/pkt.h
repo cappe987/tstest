@@ -18,7 +18,7 @@ struct pkt_cfg {
 	int tstype;
 	int count;
 	int seq;
-	char mac[ETH_ALEN];
+	unsigned char mac[ETH_ALEN];
 	char *interface;
 	int sequence_types[SEQUENCE_MAX];
 	int sequence_length;

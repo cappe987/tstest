@@ -190,8 +190,9 @@ int sk_receive(int fd, void *buf, int buflen, struct address *addr, struct hw_ti
 	}
 
 	cnt = recvmsg(fd, &msg, flags);
-	if (cnt < 0) {
+	if (cnt < 0 && errno != EAGAIN && errno != EINTR) {
 		ERR("recvmsg%sfailed: %m", flags == MSG_ERRQUEUE ? " tx timestamp " : " ");
+		return cnt;
 	}
 	for (cm = CMSG_FIRSTHDR(&msg); cm != NULL; cm = CMSG_NXTHDR(&msg, cm)) {
 		level = cm->cmsg_level;
