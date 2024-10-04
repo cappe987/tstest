@@ -12,8 +12,94 @@
 #include "tstest.h"
 #include "pkt.h"
 
-#define TEST_PASS 0
-#define TEST_FAIL -1
+/* #define TEST_PASS 0 */
+/* #define TEST_FAIL -1 */
+
+typedef enum {
+	TEST_PASS,
+	TEST_FAIL
+} Result;
+
+/* Test cases to implement:
+ * OC/BC mode:
+ * - TX Sync Twostep    (expect TX timestamp)
+ * - TX Sync Onestep    (expect originTS set on RX port)
+ * - TX Sync P2p1step   (expect originTS set on RX port)
+ * - RX Sync Twostep    (expect RX timestamp from sync)
+ * - RX Sync Onestep    (expect RX timestamp from sync)
+ * - RX Sync P2p1step   (expect RX timestamp from sync)
+ *
+ * P2P:
+ * - TX Pdelay_req Twostep  (expect TX timestamp)
+ * - TX Pdelay_req Onestep  (expect TX timestamp)
+ * - TX Pdelay_req P2p1step (expect TX timestamp)
+ * - RX Pdelay_req Twostep  (expect RX timestamp)
+ * - RX Pdelay_req Onestep  (expect RX timestamp)
+ * - RX Pdelay_req P2p1step (expect RX timestamp)
+ *
+ * - TX Pdelay_resp Twostep  (expect TX timestamp) Except if pdelay_dummy_resp_fup
+ * - TX Pdelay_resp Onestep  (expect TX timestamp) Except if pdelay_dummy_resp_fup
+ * - TX Pdelay_resp P2p1step (expect TX timestamp) Except if pdelay_dummy_resp_fup
+ * - RX Pdelay_resp Twostep  (expect RX timestamp)
+ * - RX Pdelay_resp Onestep  (expect RX timestamp)
+ * - RX Pdelay_resp P2p1step (expect RX timestamp)
+ *
+ * E2E (retest Sync for both P2P and E2E):
+ * - TX Delay_req Twostep  (expect TX timestamp)
+ * - TX Delay_req Onestep  (expect TX timestamp)
+ * - RX Delay_req Twostep  (expect RX timestamp)
+ * - RX Delay_req Onestep  (expect RX timestamp)
+ *
+ *
+ *
+ * TC mode:
+ * - Most of BC mode ???
+ * E2E:
+ * - TX Sync Onestep TC (expect correctionField to be modified, depends on reserved2)
+ *
+ * P2P:
+ * - TX Sync Onestep  (expect correctionField to be modified, depends on reserved2)
+ * - TX Sync P2p1step (expect correctionField to be modified, depends on reserved2)
+ * - RX Sync Onestep  (expect reserved2 to be set)
+ * - RX Sync P2p1step (expect reserved2 to be set)
+ *
+ *
+ *
+ * VLAN tagging
+ * - Untagged
+ * - Tagged VID 0
+ * - Tagged VID 100
+ *
+ *
+ *
+ * Timestamp performance testing:
+ * - TX timestamp: spam twostep sync for ~2 seconds. Compare all
+     timestamps and see how many were within a second.
+ * - RX timestamp: Setup TX for onestep. Use originTS as definition
+     for a second. See how many RX we were able to get. Gradually
+     increase/decrease TX delay until we manage to RX timestamp all.
+ *
+ *
+ * Each test function should have the following type signature:
+ * Result testcase(char *tx_port, char *rx_port);
+ * The idea is that each test sets up everything it needs.
+ *
+ *
+ * Port monitor mode (listen to traffic on a port that runs PTP).
+ * Could be separate from `tstest check`. Maybe `tstest monitor`?
+ * Can snoop traffic and regularly query daemon and report status to
+ * remove server. Could be run on several devices and have server
+ * aggregate the data. Write server in Golang?
+ */
+
+Result bc_tx_sync_twostep(char *tx_port, char *rx_port) {
+	// Set configuration
+	// Open socket
+	// Send Sync
+	// Expect TX timestamp within reasonable time
+
+	return TEST_FAIL;
+}
 
 int send_and_receive(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, union Message **rx_msg) {
 	struct hw_timestamp hwts;
