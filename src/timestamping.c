@@ -28,7 +28,7 @@
 #endif
 
 /* ptp4l --tx_timestamp_timeout */
-int sk_tx_timeout = 1000;
+/* int sk_tx_timeout = 1000; */
 enum hwts_filter_mode sk_hwts_filter_mode = HWTS_FILTER_NORMAL;
 
 /* FIXME: get rid of these global variables */
@@ -70,7 +70,8 @@ static void init_ifreq(struct ifreq *ifreq, struct hwtstamp_config *cfg, const c
 	ifreq->ifr_data = (void *)cfg;
 }
 
-static int hwts_init(int fd, const char *device, int rx_filter, int rx_filter2, int tx_type)
+static int hwts_init(int fd, const char *device, int rx_filter, int rx_filter2, int clk_type,
+		     int tx_type, int domain, int delay_mechanism, int header_offset)
 {
 	struct ifreq ifreq;
 	struct hwtstamp_config cfg;
@@ -106,7 +107,10 @@ static int hwts_init(int fd, const char *device, int rx_filter, int rx_filter2, 
 	case HWTS_FILTER_FULL:
 		cfg.tx_type = tx_type;
 		cfg.rx_filter = HWTSTAMP_FILTER_ALL;
-		cfg.clk_type = 2; // FIXME: clk_type;
+		cfg.clk_type = clk_type;
+		cfg.domain = domain;
+		cfg.delay_mechanism = delay_mechanism;
+		cfg.header_offset = header_offset;
 		err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
 		if (err < 0) {
 			ERR("ioctl SIOCSHWTSTAMP failed: %m");
@@ -116,7 +120,10 @@ static int hwts_init(int fd, const char *device, int rx_filter, int rx_filter2, 
 	case HWTS_FILTER_NORMAL:
 		cfg.tx_type = tx_type;
 		cfg.rx_filter = orig_rx_filter = rx_filter;
-		cfg.clk_type = 2; //FIXME: clk_type;
+		cfg.clk_type = clk_type;
+		cfg.domain = domain;
+		cfg.delay_mechanism = delay_mechanism;
+		cfg.header_offset = header_offset;
 		err = ioctl(fd, SIOCSHWTSTAMP, &ifreq);
 		if (err < 0) {
 			printf("warning: driver rejected most general HWTSTAMP filter\n");
@@ -151,7 +158,7 @@ static short sk_events = POLLPRI;
 static short sk_revents = POLLPRI;
 
 int sk_receive(int fd, void *buf, int buflen, struct address *addr, struct hw_timestamp *hwts,
-	       int flags)
+	       int flags, int sk_tx_timeout)
 {
 	char control[256];
 	int cnt = 0, res = 0, level, type;
@@ -288,19 +295,26 @@ int raw_send(int fd, enum transport_event event, void *buf, int len, struct hw_t
 	/*
 	 * Get the time stamp right away.
 	 */
-	return event == TRANS_EVENT ? sk_receive(fd, pkt, len, NULL, hwts, MSG_ERRQUEUE) : cnt;
+	return event == TRANS_EVENT ?
+		       sk_receive(fd, pkt, len, NULL, hwts, MSG_ERRQUEUE, DEFAULT_TX_TIMEOUT) :
+		       cnt;
 }
 
-int sk_timestamping_destroy(int fd, const char *device)
+int sk_timestamping_destroy(int fd, const char *device, int tstype)
 {
-	return hwts_init(fd, device, 0, 0, HWTSTAMP_TX_OFF);
+	if (tstype == TS_SOFTWARE)
+		return 0;
+	return hwts_init(fd, device, 0, 0, HWTSTAMP_CLOCK_TYPE_NONE, HWTSTAMP_TX_OFF, 0,
+			 HWTSTAMP_DELAY_MECHANISM_OFF, 0);
 }
 
-int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
-			 enum transport_type transport, int vclock)
+int sk_timestamping_init(int fd, const char *device, int clk_type, enum timestamp_type type,
+			 enum transport_type transport, int vclock, int domain,
+			 enum delay_mechanism dm, int header_offset)
 {
 	int err, filter1, filter2 = 0, flags, tx_type = HWTSTAMP_TX_ON;
 	struct so_timestamping timestamping;
+	enum hwtstamp_delay_mechanism hw_dm;
 
 	switch (type) {
 	case TS_SOFTWARE:
@@ -352,8 +366,16 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 		return -1;
 	}
 
+	if (dm == DM_E2E)
+		hw_dm = HWTSTAMP_DELAY_MECHANISM_E2E;
+	else if (dm == DM_P2P)
+		hw_dm = HWTSTAMP_DELAY_MECHANISM_P2P;
+	else
+		hw_dm = HWTSTAMP_DELAY_MECHANISM_OFF;
+
 	if (type != TS_SOFTWARE) {
-		err = hwts_init(fd, device, filter1, filter2, tx_type);
+		err = hwts_init(fd, device, filter1, filter2, clk_type, tx_type, domain, hw_dm,
+				header_offset);
 		if (err && !(type == TS_SOFTWARE && errno == ENOTSUP))
 			return err;
 	}
@@ -371,15 +393,15 @@ int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
 
 	flags = 1;
 	if (setsockopt(fd, SOL_SOCKET, SO_SELECT_ERR_QUEUE, &flags, sizeof(flags)) < 0) {
-		printf("warning: %s: SO_SELECT_ERR_QUEUE: %m\n", device);
+		WARN("%s: SO_SELECT_ERR_QUEUE: %m", device);
 		sk_events = 0;
 		sk_revents = POLLERR;
 	}
 
 	/* Enable the sk_check_fupsync option, perhaps. */
-	/*if (sk_general_init(fd)) {*/
-	/*return -1;*/
-	/*}*/
+	/* if (sk_general_init(fd)) { */
+	/* return -1; */
+	/* } */
 
 	return 0;
 }

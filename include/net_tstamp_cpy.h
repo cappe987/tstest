@@ -68,6 +68,11 @@ struct so_timestamping {
  * @tx_type:	one of HWTSTAMP_TX_*
  * @rx_filter:	one of HWTSTAMP_FILTER_*
  * @clk_type    one of HWTSTAMP_CLOCK_TYPE_*
+ * @domain	domain number
+ * @header_offset	how much further into the frame it should search for
+ * 			the PTP header. 0 = start at byte 12. Useful when
+ * 			combined with HSR tags.
+ * @delay_mechanism	one of HWTSTAMP_DELAY_MECHANISM_*
  *
  * %SIOCGHWTSTAMP and %SIOCSHWTSTAMP expect a &struct ifreq with a
  * ifr_data pointer to this structure.  For %SIOCSHWTSTAMP, if the
@@ -80,6 +85,9 @@ struct hwtstamp_config {
 	int tx_type;
 	int rx_filter;
 	int clk_type;
+	int domain;
+	int header_offset;
+	int delay_mechanism;
 };
 
 /* possible values for hwtstamp_config->flags */
@@ -188,6 +196,12 @@ enum hwtstamp_clk_types {
 	HWTSTAMP_CLOCK_TYPE_TRANSPARENT_CLOCK,
 	HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
 	HWTSTAMP_CLOCK_TYPE_BOUNDARY_CLOCK,
+};
+
+enum hwtstamp_delay_mechanism {
+	HWTSTAMP_DELAY_MECHANISM_OFF,
+	HWTSTAMP_DELAY_MECHANISM_E2E,
+	HWTSTAMP_DELAY_MECHANISM_P2P,
 };
 
 /* SCM_TIMESTAMPING_PKTINFO control message */

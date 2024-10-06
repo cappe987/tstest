@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
 #include <signal.h>
 
@@ -109,6 +111,58 @@ static int get_event_type(struct pkt_cfg *cfg, int type)
 		return TRANS_EVENT; // Timestamp rest
 }
 
+int msg_get_type(union Message *msg)
+{
+	return msg->hdr.tsmt & 0xF;
+}
+
+union Message build_msg(struct pkt_cfg *cfg, int type)
+{
+	struct ptp_header hdr;
+
+	hdr = ptp_header_template();
+	ptp_set_type(&hdr, type);
+	ptp_set_seqId(&hdr, cfg->seq);
+	ptp_set_dmac(&hdr, (unsigned char *)cfg->mac);
+	ptp_set_transport_specific(&hdr, cfg->transportSpecific);
+	ptp_set_version(&hdr, cfg->version);
+	ptp_set_domain(&hdr, cfg->domain);
+
+	set_two_step_flag(cfg, &hdr, type);
+
+	return ptp_msg_create_type(hdr, type);
+}
+
+int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns)
+{
+	int type = msg_get_type(msg);
+	int event_type, size, err;
+	struct hw_timestamp hwts;
+	char buf[1500];
+	uint16_t *dot1q, *vid;
+
+	hwts.type = cfg->tstype;
+	event_type = get_event_type(cfg, type);
+	/* printf("type %d\n", type); */
+	size = ptp_msg_get_size(type);
+	memset(buf, 0, 1500);
+	memcpy(buf, msg, size);
+	if (cfg->vlan != 0 || cfg->prio != 0) {
+		size += 4;
+		memmove(&buf[16], &buf[12], 1484);
+		dot1q = (uint16_t*) &buf[12];
+		vid = (uint16_t*) &buf[14];
+		*dot1q = htons(ETH_P_8021Q);
+		*vid = htons((cfg->prio << 13) | cfg->vlan);
+	}
+
+	err = raw_send(sock, event_type, buf, size, &hwts);
+	*ns = hwts.ts.ns;
+	/* printf("NS: %ld\n", hwts.ts.ns); */
+	return err;
+}
+
+// TODO: handle VLAN
 int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts, int64_t *ns)
 {
 	struct ptp_header hdr;
@@ -194,16 +248,16 @@ static void rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 	int cnt;
 
 	rx_msg = (union Message *)buf;
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 10000;
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 10000;
 
-    if (setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0)
-        ERR("setsockopt failed: %m\n");
+	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0)
+		ERR("setsockopt failed: %m\n");
 
 	while (pkt_running) {
-		cnt = sk_receive(sock, rx_msg, 1600, NULL, hwts, 0);
+		cnt = sk_receive(sock, rx_msg, 1600, NULL, hwts, 0, DEFAULT_TX_TIMEOUT);
 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
-		  continue;
+			continue;
 		printf("Type: %s. ", ptp_type2str(rx_msg->hdr.tsmt & 0xF));
 		print_ts("TS: ", hwts->ts.ns);
 	}
@@ -231,7 +285,8 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "StrapdfD:l:hoOi:m:c:s:T:v:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "StrapdfD:l:hoOi:m:c:s:T:v:", long_options, NULL)) !=
+	       -1) {
 		switch (c) {
 		case 1:
 			cfg->transportSpecific = strtoul(optarg, NULL, 0);
@@ -351,9 +406,9 @@ int run_pkt_mode(int argc, char **argv)
 	}
 
 	/*if (cfg.auto_fup && (cfg.ptp_type != SYNC && cfg.ptp_type != PDELAY_RESP)) {*/
-		/*fprintf(stderr,*/
-			/*"Error: auto-follow-up can only be used with sync and pdelay_resp\n");*/
-		/*return EINVAL;*/
+	/*fprintf(stderr,*/
+	/*"Error: auto-follow-up can only be used with sync and pdelay_resp\n");*/
+	/*return EINVAL;*/
 	/*}*/
 
 	signal(SIGINT, sig_handler);
@@ -373,7 +428,8 @@ int run_pkt_mode(int argc, char **argv)
 		return sock;
 	}
 
-	err = sk_timestamping_init(sock, cfg.interface, cfg.tstype, TRANS_IEEE_802_3, -1);
+	err = sk_timestamping_init(sock, cfg.interface, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
+				   cfg.tstype, TRANS_IEEE_802_3, -1, 0, DM_P2P, 0);
 	if (err < 0) {
 		ERR_NO("failed to enable timestamping");
 		return err;
@@ -384,8 +440,7 @@ int run_pkt_mode(int argc, char **argv)
 	else
 		tx_mode(&cfg, sock, &hwts);
 
-	if (cfg.tstype != TS_SOFTWARE) // No teardown needed for SW timestamping
-		sk_timestamping_destroy(sock, cfg.interface);
+	sk_timestamping_destroy(sock, cfg.interface, cfg.tstype);
 
 	return 0;
 }
