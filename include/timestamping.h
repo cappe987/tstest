@@ -12,6 +12,8 @@
 #include <inttypes.h>
 #include <sys/un.h>
 
+#define DEFAULT_TX_TIMEOUT 1000
+
 /* A lot taken from Linuxptp project */
 
 #define NS_PER_SEC 1000000000
@@ -117,11 +119,13 @@ static unsigned char ptp_dst_mac[] = { 0x01, 0x1B, 0x19, 0x00, 0x00, 0x00 };
 static unsigned char p2p_dst_mac[] = { 0x01, 0x80, 0xC2, 0x00, 0x00, 0x0E };
 
 int sk_receive(int fd, void *buf, int buflen, struct address *addr, struct hw_timestamp *hwts,
-	       int flags);
+	       int flags, int sk_tx_timeout);
 int raw_send(int fd, enum transport_event event, void *buf, int len, struct hw_timestamp *hwts);
-int sk_timestamping_destroy(int fd, const char *device);
-int sk_timestamping_init(int fd, const char *device, enum timestamp_type type,
-			 enum transport_type transport, int vclock);
+int sk_timestamping_destroy(int fd, const char *device, int tstype);
+int sk_timestamping_init(int fd, const char *device, int clk_type, enum timestamp_type type,
+			 enum transport_type transport, int vclock, int domain,
+			 enum delay_mechanism dm, int header_offset);
+
 //int socket_init_raw(char *interface);
 int open_socket(const char *name, int event, unsigned char *ptp_dst_mac, unsigned char *p2p_dst_mac,
 		int socket_priority, int ena_filters);

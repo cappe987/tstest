@@ -15,10 +15,11 @@
 /* #define TEST_PASS 0 */
 /* #define TEST_FAIL -1 */
 
-typedef enum {
-	TEST_PASS,
-	TEST_FAIL
-} Result;
+#define TSTEST_CHECK_DOMAIN 123
+#define TSTEST_CHECK_SEQ_NR 5000
+#define TSTEST_CHECK_VLAN_PRIO 4
+
+typedef enum { TEST_PASS, TEST_FAIL, TEST_INVALID } Result;
 
 /* Test cases to implement:
  * OC/BC mode:
@@ -70,6 +71,7 @@ typedef enum {
  * - Tagged VID 0
  * - Tagged VID 100
  *
+ * Check TS capabilities before trying Software/Twostep/Onestep/P2p1step
  *
  *
  * Timestamp performance testing:
@@ -92,16 +94,164 @@ typedef enum {
  * aggregate the data. Write server in Golang?
  */
 
-Result bc_tx_sync_twostep(char *tx_port, char *rx_port) {
-	// Set configuration
-	// Open socket
-	// Send Sync
-	// Expect TX timestamp within reasonable time
+#define CHECK_SOCKET_CREATED(socket)                                                               \
+	if (sock < 0) {                                                                            \
+		ERR_NO("Failed to create socket");                                                 \
+		return TEST_FAIL;                                                                  \
+	}
+#define CHECK_TX_TIMESTAMP(err)                                                                    \
+	if (err < 0) {                                                                             \
+		ERR_NO("Failed to send message or get TX timestamp");                              \
+		return TEST_FAIL;                                                                  \
+	}
+#define CHECK_TX_NOT_ZERO(ns)                                                                      \
+	if (ns == 0) {                                                                             \
+		ERR("TX timestamp not found");                                                     \
+		return TEST_FAIL;                                                                  \
+	}
 
-	return TEST_FAIL;
+typedef Result (*test_func_t)(char *, char *, enum delay_mechanism, int);
+
+typedef struct {
+	char *name;
+	char *expect;
+	test_func_t func;
+	enum timestamp_type tstype;
+} test_t;
+
+int setup_socket(struct pkt_cfg *cfg, char *tx_iface)
+{
+	int sock, err;
+
+	sock = open_socket(tx_iface, 1, ptp_dst_mac, p2p_dst_mac, 0, 0);
+	if (sock < 0) {
+		ERR_NO("failed to open socket");
+		return -errno;
+	}
+
+	err = sk_timestamping_init(sock, tx_iface, cfg->clk_type, cfg->tstype, TRANS_IEEE_802_3, -1,
+				   cfg->domain, cfg->dm, 0);
+	if (err < 0) {
+		ERR_NO("failed to enable timestamping");
+		return -errno;
+	}
+
+	return sock;
 }
 
-int send_and_receive(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, union Message **rx_msg) {
+struct pkt_cfg init_cfg(enum timestamp_type tstype, enum hwtstamp_clk_types clk_type,
+			enum delay_mechanism dm, int vlan)
+{
+	struct pkt_cfg c = { 0 };
+
+	c.transportSpecific = 0;
+	c.twoStepFlag_set = 0;
+	c.nonstop_flag = 0;
+	c.tstamp_all = 0;
+	c.rx_only = 0;
+	c.listen = -1;
+
+	c.version = 2;
+	c.domain = TSTEST_CHECK_DOMAIN;
+	c.tstype = tstype;
+	c.count = 1;
+	c.seq = TSTEST_CHECK_SEQ_NR;
+	c.dm = dm;
+	c.clk_type = clk_type;
+	if (vlan >= 0) {
+		c.vlan = vlan;
+		c.prio = TSTEST_CHECK_VLAN_PRIO;
+	}
+
+	return c;
+}
+
+Result check_bc_tx_sync_twostep(char *tx_port, char *rx_port, enum delay_mechanism dm, int vlan)
+{
+	union Message msg;
+	struct pkt_cfg c;
+	int sock, err;
+	int64_t ns = 0;
+
+	c = init_cfg(TS_HARDWARE, HWTSTAMP_CLOCK_TYPE_BOUNDARY_CLOCK, dm, vlan);
+	/* c = init_cfg(TS_SOFTWARE, HWTSTAMP_CLOCK_TYPE_BOUNDARY_CLOCK, dm, vlan); */
+	sock = setup_socket(&c, tx_port);
+	CHECK_SOCKET_CREATED(sock);
+
+	str2mac("01:1B:19:00:00:00", c.mac);
+	msg = build_msg(&c, SYNC);
+	err = send_msg(&c, sock, &msg, &ns);
+	CHECK_TX_TIMESTAMP(err);
+	CHECK_TX_NOT_ZERO(ns);
+
+	sk_timestamping_destroy(sock, tx_port, c.tstype);
+	close(sock);
+
+	return TEST_PASS;
+}
+
+/* Any test with TS_HARDWARE can be run on TS_SOFTWARE too */
+test_t tests[] = { { .name = "BC TX Sync Twostep",
+		     .expect = "TX timestamp from Sync",
+		     .func = check_bc_tx_sync_twostep,
+		     .tstype = TS_HARDWARE },
+		   { .name = NULL } };
+
+int check_num_tests()
+{
+	int i;
+	for (i = 0; tests[i].name != NULL; i++) {
+	}
+	return i;
+}
+
+int check_run_all_tests_vlan(char *tx_port, char *rx_port, int vlan)
+{
+	int pass = 0;
+	Result res;
+	int i;
+
+	if (vlan >= 0)
+		printf("===== Tagged: VLAN %d. PRIO %d =====\n", vlan, TSTEST_CHECK_VLAN_PRIO);
+	else
+		printf("===== Untagged =====\n");
+
+	for (i = 0; tests[i].name != NULL; i++) {
+		/* printf("Test: %s\n", tests[i].name); */
+		/* printf("Test: %s ", tests[i].name); */
+		/* fflush(stdout); */
+		res = tests[i].func(tx_port, rx_port, DM_P2P, vlan);
+		if (res == TEST_PASS) {
+			printf("%s: \e[32m[PASS]\e[0m\n", tests[i].name);
+			pass++;
+		} else {
+			printf("%s: \e[31m[FAIL]\nExpected %s\e[0m\n", tests[i].name,
+			       tests[i].expect);
+		}
+	}
+
+	return pass;
+}
+
+int check_run_all_tests(char *tx_port, char *rx_port)
+{
+	int total = 0;
+	int pass = 0;
+
+	pass += check_run_all_tests_vlan(tx_port, rx_port, -1);
+	pass += check_run_all_tests_vlan(tx_port, rx_port, 0);
+	pass += check_run_all_tests_vlan(tx_port, rx_port, 100);
+	total = check_num_tests() * 3;
+
+	printf("Passed %d/%d\n", pass, total);
+	return pass == total;
+}
+
+/////////////////////////////////////
+
+int send_and_receive(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type,
+		     union Message **rx_msg)
+{
 	struct hw_timestamp hwts;
 	int tx_bytes, rx_bytes;
 	int64_t ns;
@@ -113,7 +263,7 @@ int send_and_receive(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, 
 	tx_bytes = build_and_send(cfg, txsock, ptp_type, &hwts, &ns);
 	if (tx_bytes < 0) // Convert to positive errno
 		return -tx_bytes;
-	rx_bytes = sk_receive(rxsock, rx_msg, 1600, NULL, &hwts, 0);
+	rx_bytes = sk_receive(rxsock, rx_msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
 	if (rx_bytes < 0) // Convert to positive errno
 		return -rx_bytes;
 
@@ -125,7 +275,9 @@ int send_and_receive(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, 
 	return TEST_PASS;
 }
 
-int send_and_check(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, int expect_tx_ts, int expect_rx_ts) {
+int send_and_check(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, int expect_tx_ts,
+		   int expect_rx_ts)
+{
 	struct hw_timestamp hwts;
 	unsigned char buf[1600];
 	int tx_bytes, rx_bytes;
@@ -142,7 +294,7 @@ int send_and_check(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, in
 
 	/*print_ts("TX TS: ", ns);*/
 
-	rx_bytes = sk_receive(rxsock, rx_msg, 1600, NULL, &hwts, 0);
+	rx_bytes = sk_receive(rxsock, rx_msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
 	/*print_ts("RX TS: ", hwts.ts.ns);*/
 
 	/*tx_bytes = send_and_receive(cfg, txsock, rxsock, ptp_type, &rx_msg, &rx_bytes);*/
@@ -158,6 +310,9 @@ int send_and_check(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, in
 		printf("TX failed. Got timestamp\n");
 		result_tx = TEST_FAIL;
 	}
+	/* if (expect_tx_ts) { */
+	/* printf("Got NS: %ld\n", ns); */
+	/* } */
 
 	if (expect_rx_ts && hwts.ts.ns == 0) {
 		printf("RX failed. Expected timestamp\n");
@@ -173,7 +328,9 @@ int send_and_check(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, in
 	return result_tx || result_rx;
 }
 
-int check_type(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, int expect_tx_ts, int expect_rx_ts) {
+int check_type(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, int expect_tx_ts,
+	       int expect_rx_ts)
+{
 	int err;
 
 	err = send_and_check(cfg, txsock, rxsock, ptp_type, expect_tx_ts, expect_rx_ts);
@@ -185,7 +342,8 @@ int check_type(struct pkt_cfg *cfg, int txsock, int rxsock, int ptp_type, int ex
 	return TEST_PASS;
 }
 
-int setup_sockets(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface, int *txsock, int *rxsock) {
+int setup_sockets(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface, int *txsock, int *rxsock)
+{
 	int err;
 
 	// XXX: Filters disables so we can run events and non-events on same socket
@@ -195,7 +353,8 @@ int setup_sockets(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface, int *txso
 		return errno;
 	}
 
-	err = sk_timestamping_init(*txsock, tx_iface, cfg->tstype, TRANS_IEEE_802_3, -1);
+	err = sk_timestamping_init(*txsock, tx_iface, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
+				   cfg->tstype, TRANS_IEEE_802_3, -1, 0, DM_P2P, 0);
 	if (err < 0) {
 		ERR_NO("failed to enable timestamping");
 		return errno;
@@ -208,7 +367,8 @@ int setup_sockets(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface, int *txso
 		return errno;
 	}
 
-	err = sk_timestamping_init(*rxsock, tx_iface, cfg->tstype, TRANS_IEEE_802_3, -1);
+	err = sk_timestamping_init(*rxsock, rx_iface, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
+				   cfg->tstype, TRANS_IEEE_802_3, -1, 0, DM_P2P, 0);
 	if (err < 0) {
 		ERR_NO("failed to enable timestamping");
 		return errno;
@@ -217,12 +377,14 @@ int setup_sockets(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface, int *txso
 	return 0;
 }
 
-void teardown_sockets(int txsock, int rxsock) {
+void teardown_sockets(int txsock, int rxsock)
+{
 	close(txsock);
 	close(rxsock);
 }
 
-void print_result(char *str, int result) {
+void print_result(char *str, int result)
+{
 	if (result == TEST_PASS)
 		printf("- \e[32m[Passed]\e[0m %s\n", str);
 	else if (result == TEST_FAIL)
@@ -231,7 +393,8 @@ void print_result(char *str, int result) {
 		printf("- \e[31m[Error]\e[0m %s\n", str);
 }
 
-int check_onestep_ts(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface) {
+int check_onestep_ts(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
+{
 	struct hw_timestamp hwts;
 	unsigned char buf[1600];
 	int result = TEST_PASS;
@@ -242,11 +405,10 @@ int check_onestep_ts(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface) {
 	int err;
 
 	cfg->tstype = TS_ONESTEP;
-	
+
 	result = setup_sockets(cfg, tx_iface, rx_iface, &txsock, &rxsock);
 	if (result)
 		goto out;
-		
 
 	result = send_and_receive(cfg, txsock, rxsock, SYNC, &rx_msg);
 	if (result)
@@ -264,23 +426,26 @@ out:
 	return result;
 }
 
-int check_p2p1step_ts(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface) {
+int check_p2p1step_ts(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
+{
 	cfg->tstype = TS_P2P1STEP;
-	
+
 	// TODO: Check correctionField? Potentially it could work with originTimestamp
 }
 
-int check_software_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface) {
+int check_software_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
+{
 	int result = TEST_PASS;
 	int txsock, rxsock;
 	int64_t ns;
 
 	cfg->tstype = TS_SOFTWARE;
- 
+
 	result = setup_sockets(cfg, tx_iface, rx_iface, &txsock, &rxsock);
 	if (result)
 		goto out;
 
+	// clang-format off
 	str2mac("01:1B:19:00:00:00", cfg->mac);
 	result |= check_type(cfg, txsock, rxsock, SYNC,            1, 1);
 	result |= check_type(cfg, txsock, rxsock, DELAY_REQ,       1, 1);
@@ -294,23 +459,26 @@ int check_software_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 	result |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     1, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 1, 1);
+	// clang-format on
 
 out:
 	teardown_sockets(txsock, rxsock);
 	return result;
 }
 
-int check_hardware_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface) {
+int check_hardware_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
+{
 	int result = TEST_PASS;
 	int txsock, rxsock;
 	int64_t ns;
 
 	cfg->tstype = TS_HARDWARE;
- 
+
 	result = setup_sockets(cfg, tx_iface, rx_iface, &txsock, &rxsock);
 	if (result)
 		goto out;
 
+	// clang-format off
 	str2mac("01:1B:19:00:00:00", cfg->mac);
 	result |= check_type(cfg, txsock, rxsock, SYNC,            1, 1);
 	result |= check_type(cfg, txsock, rxsock, DELAY_REQ,       1, 1);
@@ -324,13 +492,15 @@ int check_hardware_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 	result |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     1, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
+	// clang-format on
 
 out:
 	teardown_sockets(txsock, rxsock);
 	return result;
 }
 
-int check_onestep_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface) {
+int check_onestep_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
+{
 	int result = TEST_PASS;
 	int txsock, rxsock;
 	int64_t ns;
@@ -341,6 +511,7 @@ int check_onestep_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
 		goto out;
 
 	str2mac("01:1B:19:00:00:00", cfg->mac);
+	// clang-format off
 	result |= check_type(cfg, txsock, rxsock, SYNC,            0, 1);
 	result |= check_type(cfg, txsock, rxsock, DELAY_REQ,       1, 1);
 	result |= check_type(cfg, txsock, rxsock, FOLLOW_UP,       0, 0);
@@ -353,13 +524,15 @@ int check_onestep_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
 	result |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     1, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
+	// clang-format on
 
 out:
 	teardown_sockets(txsock, rxsock);
 	return result;
 }
 
-int check_p2p1step_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface) {
+int check_p2p1step_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
+{
 	int result = TEST_PASS;
 	int txsock, rxsock;
 	int64_t ns;
@@ -369,6 +542,7 @@ int check_p2p1step_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 	if (result)
 		goto out;
 
+	// clang-format off
 	str2mac("01:1B:19:00:00:00", cfg->mac);
 	result |= check_type(cfg, txsock, rxsock, SYNC,            0, 1);
 	/*result |= check_type(cfg, txsock, rxsock, DELAY_REQ,       1, 1);*/
@@ -382,6 +556,7 @@ int check_p2p1step_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface
 	result |= check_type(cfg, txsock, rxsock, PDELAY_REQ,      1, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP,     0, 1);
 	result |= check_type(cfg, txsock, rxsock, PDELAY_RESP_FUP, 0, 0);
+	// clang-format on
 
 out:
 	teardown_sockets(txsock, rxsock);
@@ -389,7 +564,8 @@ out:
 }
 
 // TODO: Implement argument handling
-int run_check_mode(int argc, char **argv) {
+int run_check_mode(int argc, char **argv)
+{
 	int timestamping_mode = TS_HARDWARE;
 	struct pkt_cfg cfg = { 0 };
 	char *tx_iface = "veth1";
@@ -442,8 +618,8 @@ int run_check_mode(int argc, char **argv) {
 	default:
 		break;
 	}
+
+	check_run_all_tests(tx_iface, rx_iface);
+
 	return result;
 }
-
-
-

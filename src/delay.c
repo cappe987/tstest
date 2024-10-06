@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
+#include "net_tstamp_cpy.h"
 #include <stdlib.h>
 #include <getopt.h>
 #include <unistd.h>
@@ -10,6 +11,7 @@
 #include "timestamping.h"
 #include "liblink.h"
 #include "tstest.h"
+#include "pkt.h"
 
 /* TODO:
  * - Implement mmedian_sample delay filter (ptp4l delay_filter)
@@ -54,11 +56,6 @@ void increment_seq(struct ptp_header *hdr)
 	hdr->sequenceId = htons(ntohs(hdr->sequenceId) + 1);
 }
 
-int msg_get_type(union Message *msg)
-{
-	return msg->hdr.tsmt & 0xF;
-}
-
 int receive_packet(struct delay_cfg *cfg, int e_sock, int g_sock, struct timeval *tv,
 		   int expected_type, union Message *msg, Integer64 *ns)
 {
@@ -85,7 +82,7 @@ int receive_packet(struct delay_cfg *cfg, int e_sock, int g_sock, struct timeval
 		}
 
 		if (FD_ISSET(e_sock, &fds)) {
-			err = sk_receive(e_sock, msg, 1600, NULL, &hwts, 0);
+			err = sk_receive(e_sock, msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
 			if (err < 0) {
 				return err;
 			}
@@ -99,7 +96,7 @@ int receive_packet(struct delay_cfg *cfg, int e_sock, int g_sock, struct timeval
 			*ns = hwts.ts.ns;
 			return 0;
 		} else if (FD_ISSET(g_sock, &fds)) {
-			err = sk_receive(g_sock, msg, 1600, NULL, &hwts, 0);
+			err = sk_receive(g_sock, msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
 			if (err < 0) {
 				return err;
 			}
@@ -414,7 +411,8 @@ int run_delay_mode(int argc, char **argv)
 	if (g_sock < 0)
 		return g_sock;
 
-	err = sk_timestamping_init(e_sock, cfg.interface, cfg.tstype, TRANS_IEEE_802_3, -1);
+	err = sk_timestamping_init(e_sock, cfg.interface, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
+				   cfg.tstype, TRANS_IEEE_802_3, -1, 0, DM_P2P, 0);
 	if (err < 0)
 		return -err;
 
