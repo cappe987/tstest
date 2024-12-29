@@ -211,6 +211,9 @@ int run_delay_mode(int argc, char **argv);
 /* check.c */
 int run_check_mode(int argc, char **argv);
 
+/* tc.c */
+int run_tc_mode(int argc, char **argv);
+
 /* ptp_message.c */
 int str2ptp_type(const char *str);
 char *ptp_type2str(int type);

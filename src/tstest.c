@@ -22,6 +22,7 @@ int tstest_help()
 	pkt - Send individual PTP packets\n\
 	extts - Listen to EXTTS events\n\
 	delay - Perform path delay measurements\n\
+	tc - Test Transparent Clock correction\n\
 	version - Show version\n");
 	fprintf(stderr, "\n");
 	return EINVAL;
@@ -42,6 +43,8 @@ int main(int argc, char **argv)
 		return run_delay_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "check") == 0)
 		return run_check_mode(argc - 1, &argv[1]);
+	else if (strcmp(argv[1], "tc") == 0)
+		return run_tc_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "version") == 0)
 		return tstest_version();
 	else
