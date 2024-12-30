@@ -38,6 +38,14 @@ add_custom_target(test
 	DEPENDS ${PROJECT_BINARY_DIR}/tstest
 	)
 
+# Add separate command for pipeline since apparently `unshare` is
+# problematic there on Ubuntu 24.04.
+add_custom_target(pipeline_test
+	COMMAND
+	${PROJECT_SOURCE_DIR}/test/test.sh ${PROJECT_BINARY_DIR}/tstest $(t)
+	DEPENDS ${PROJECT_BINARY_DIR}/tstest
+	)
+
 # ============= Configure ===============
 configure_file(include/version.h.in include/version.h)
 

@@ -32,7 +32,9 @@ jobs:
       - name: Test
         run: |
           cd build
-          make test
+          # Use sudo and a specific pipeline_test command since in
+          # Ubuntu 24.04 you can't run `unshare` when unprivilegied.
+          sudo make pipeline_test
   build-aarch64:
     name: Build aarch64
     runs-on: ubuntu-latest
