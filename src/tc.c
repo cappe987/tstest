@@ -40,7 +40,6 @@
  * ingress/egress latency.
  */
 
-
 /* TODO:
  * - Support twostep mode? To test offloaded 2-step TC
  * - Add support to reply to pdelay messages for P2P TC?
@@ -68,7 +67,8 @@ int tc_running = 1;
 void tc_help()
 {
 	fprintf(stderr, "\n--- TSTest Transparent Clock ---\n\n");
-	fprintf(stderr, "Sends packets through a TC, back to the same device to measure TC compensation\n\n\
+	fprintf(stderr,
+		"Sends packets through a TC, back to the same device to measure TC compensation\n\n\
 Usage:\n\
         tstest tc [options]\n\n\
 Options:\n\
@@ -91,7 +91,8 @@ static void sig_handler(int sig)
 	tc_running = 0;
 }
 
-static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *correction, uint16_t *seqid)
+static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *correction,
+		   uint16_t *seqid)
 {
 	struct hw_timestamp hwts;
 	unsigned char buf[1600];
@@ -213,7 +214,8 @@ static void show_stats(Stats *s, char *p1, char *p2, int count_left)
 
 	printf("===============\n");
 	if (count_left)
-		printf("%d measurements (exited early, expected %d)\n", s->count, s->count + count_left);
+		printf("%d measurements (exited early, expected %d)\n", s->count,
+		       s->count + count_left);
 	else
 		printf("%d measurements\n", s->count);
 	printf("%s -> %s\n", p1, p2);
@@ -242,13 +244,13 @@ static void show_stats(Stats *s, char *p1, char *p2, int count_left)
 	}
 
 	printf("--- TIME ERROR ---\n");
-	printf("Mean: %"PRId64"\n", sum_err / s->count);
-	printf("Max : %"PRId64"\n", max_err);
-	printf("Min : %"PRId64"\n", min_err);
+	printf("Mean: %" PRId64 "\n", sum_err / s->count);
+	printf("Max : %" PRId64 "\n", max_err);
+	printf("Min : %" PRId64 "\n", min_err);
 	printf("--- LATENCY ---\n");
-	printf("Mean: %"PRId64"\n", sum_lat / s->count);
-	printf("Max : %"PRId64"\n", max_lat);
-	printf("Min : %"PRId64"\n", min_lat);
+	printf("Mean: %" PRId64 "\n", sum_lat / s->count);
+	printf("Max : %" PRId64 "\n", max_lat);
+	printf("Min : %" PRId64 "\n", min_lat);
 	printf("===============\n");
 }
 
@@ -292,7 +294,9 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 		tx_ts += cfg->egressLatency;
 		rx_ts -= cfg->ingressLatency;
 		total_err = rx_ts - tx_ts - correction;
-		DEBUG("%s -> %s. TX: %"PRId64". RX: %"PRId64". Corr: %"PRId64". Result: %"PRId64"\n", p1, p2, tx_ts, rx_ts, correction, total_err);
+		DEBUG("%s -> %s. TX: %" PRId64 ". RX: %" PRId64 ". Corr: %" PRId64
+		      ". Result: %" PRId64 "\n",
+		      p1, p2, tx_ts, rx_ts, correction, total_err);
 		if (!debugen) {
 			printf(".");
 			fflush(stdout);
@@ -308,7 +312,8 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 	free_stats(&s);
 }
 
-static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2, int *bidirectional)
+static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2,
+			int *bidirectional)
 {
 	int type;
 	int c;
@@ -333,8 +338,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:b", long_options, NULL)) !=
-	       -1) {
+	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:b", long_options, NULL)) != -1) {
 		switch (c) {
 		case 1:
 			cfg->transportSpecific = strtoul(optarg, NULL, 0);
@@ -413,7 +417,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		cfg->sequence_types[0] = SYNC;
 		cfg->sequence_length = 1;
 	}
-	
+
 	if (!p1 || !p2) {
 		printf("Needs two ports. Use -i ethN -i ethM to specify two ports\n");
 		return EINVAL;
@@ -447,8 +451,8 @@ int run_tc_mode(int argc, char **argv)
 		return p1_sock;
 	}
 
-	err = sk_timestamping_init(p1_sock, p1, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
-				   cfg.tstype, TRANS_IEEE_802_3, -1, 0, DM_E2E, 0);
+	err = sk_timestamping_init(p1_sock, p1, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK, cfg.tstype,
+				   TRANS_IEEE_802_3, -1, 0, DM_E2E, 0);
 	if (err < 0) {
 		ERR_NO("failed to enable timestamping");
 		return err;
@@ -460,13 +464,13 @@ int run_tc_mode(int argc, char **argv)
 		return p2_sock;
 	}
 
-	err = sk_timestamping_init(p2_sock, p2, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
-				   cfg.tstype, TRANS_IEEE_802_3, -1, 0, DM_E2E, 0);
+	err = sk_timestamping_init(p2_sock, p2, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK, cfg.tstype,
+				   TRANS_IEEE_802_3, -1, 0, DM_E2E, 0);
 	if (err < 0) {
 		ERR_NO("failed to enable timestamping");
 		return err;
 	}
-	
+
 	count = cfg.count;
 	run(&cfg, p1, p2, p1_sock, p2_sock);
 	if (!bidirectional)

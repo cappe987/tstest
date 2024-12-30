@@ -150,8 +150,8 @@ int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns)
 	if (cfg->vlan != 0 || cfg->prio != 0) {
 		size += 4;
 		memmove(&buf[16], &buf[12], 1484);
-		dot1q = (uint16_t*) &buf[12];
-		vid = (uint16_t*) &buf[14];
+		dot1q = (uint16_t *)&buf[12];
+		vid = (uint16_t *)&buf[14];
 		*dot1q = htons(ETH_P_8021Q);
 		*vid = htons((cfg->prio << 13) | cfg->vlan);
 	}
