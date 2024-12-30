@@ -92,7 +92,7 @@ static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *co
 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
 			continue;
 		*rx_ts = hwts.ts.ns;
-		*correction = be64toh(rx_msg->hdr.correction);
+		*correction = be64toh(rx_msg->hdr.correction) >> 16;
 		return 0;
 	}
 
@@ -140,7 +140,7 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 		DEBUG("RX: %"PRId64"\n", rx_ts);
 		DEBUG("CORR: %"PRId64"\n", correction);
 		result = rx_ts - tx_ts - correction - cfg->ingressLatency - cfg->egressLatency;
-		printf("%s->%s: %"PRId64"\n", p1, p2, result);
+		printf("%s -> %s: %"PRId64"\n", p1, p2, result);
 		cfg->count--;
 		/* With a proper TC, only the cable delay should be left uncompensated for */
 		/* Total delay accrued (RX - TX - RESIDENCE - SELF.INGR_LAT - SELF.EGR_LAT) */
