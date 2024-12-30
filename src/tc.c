@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
 
-// Wiretime (https://github.com/cappe987/wiretime) could also be used
-// for this purpose if adapted to handle correction time and
-// ingress/egress latency.
-
 #include <endian.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,9 +21,30 @@
 #include "tstest.h"
 #include "pkt.h"
 
+/* Measure the one-way inaccuracy through a TC. Runs on two ports that
+ * are either synchronized or use the same PHC. The inaccuracies will
+ * be the cable delay + any uncompensated rx/tx latencies.
+ *
+ * The host should set --ingressLatency and --egressLatency. If the rx/tx
+ * latencies aren't exactly known they can be set to the same value as
+ * they will cancel each other out.
+ *
+ * The value can be found by measuring the inaccuracy (minus the cable
+ * delay) and dividing by 2, with a looped cable. This is the same
+ * process as measuring the peer delay.
+ *
+ * ingressLatency = egressLatency = peer_delay - cable_delay
+ *
+ * Wiretime (https://github.com/cappe987/wiretime) could also be used
+ * for this purpose if adapted to handle correction time and
+ * ingress/egress latency.
+ */
+
+
 /* TODO:
  * - Support twostep mode? To test offloaded 2-step TC
  * - Add support to reply to pdelay messages for P2P TC?
+ * - Add a dynamic array to collect values (can be used for graphs)
  */
 
 int tc_running = 1;
