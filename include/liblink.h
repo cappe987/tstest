@@ -13,9 +13,7 @@
 #define _DEBUG(file, fmt, ...)                                                                     \
 	do {                                                                                       \
 		if (debugen) {                                                                     \
-			fprintf(file, " " fmt, ##__VA_ARGS__);                                     \
-		} else {                                                                           \
-			;                                                                          \
+			fprintf(file, "debug: " fmt, ##__VA_ARGS__);                               \
 		}                                                                                  \
 	} while (0)
 
