@@ -44,7 +44,6 @@
 /* TODO:
  * - Support twostep mode? To test offloaded 2-step TC
  * - Add support to reply to pdelay messages for P2P TC?
- * - Add a dynamic array to collect values (can be used for graphs)
  */
 
 int tc_running = 1;
@@ -92,7 +91,7 @@ static void sig_handler(int sig)
 	tc_running = 0;
 }
 
-static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *correction)
+static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *correction, uint16_t *seqid)
 {
 	struct hw_timestamp hwts;
 	unsigned char buf[1600];
@@ -106,8 +105,12 @@ static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *co
 
 	while (tc_running) {
 		cnt = sk_receive(p2_sock, rx_msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
+		/* TODO: Handle receiving other packet types here
+		 * (e.g. pdelays). We only want to consider Syncs
+		 */
 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
 			continue;
+		*seqid = be16toh(rx_msg->hdr.sequenceId);
 		*rx_ts = hwts.ts.ns;
 		*correction = be64toh(rx_msg->hdr.correction) >> 16;
 		return 0;
@@ -134,15 +137,75 @@ static void send_pkt(struct pkt_cfg *cfg, int sock, int64_t *tx_ts)
 	}
 }
 
-struct stats {
-	int count;
-	int64_t total;
-	int64_t max;
-	int64_t min;
+/* Ingress/egress latency of host should be accounted for in these timestamps */
+struct tsinfo {
+	uint16_t seqid;
+	int64_t tx_ts;
+	int64_t rx_ts;
+	int64_t correction;
 };
 
-static void show_stats(char *p1, char *p2, int count_left, struct stats *s)
+typedef struct {
+	int count;
+	int size;
+	struct tsinfo *tsinfo;
+} Stats;
+
+static int init_stats(Stats *s, int size)
 {
+	if (size == 0)
+		s->size = 100;
+	else
+		s->size = size;
+	s->count = 0;
+	s->tsinfo = malloc(sizeof(struct tsinfo) * s->size);
+	if (!s->tsinfo) {
+		ERR("failed to allocate stats array");
+		return ENOMEM;
+	}
+	return 0;
+}
+
+static void free_stats(Stats *s)
+{
+	free(s->tsinfo);
+}
+
+static int add_stats(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid)
+{
+	if (s->count == s->size) {
+		s->size = s->size * 2;
+		s->tsinfo = realloc(s->tsinfo, sizeof(struct tsinfo) * s->size);
+		if (!s->tsinfo) {
+			ERR("failed to reallocate stats array");
+			return ENOMEM;
+		}
+	}
+
+	s->tsinfo[s->count].seqid = seqid;
+	s->tsinfo[s->count].tx_ts = tx_ts;
+	s->tsinfo[s->count].rx_ts = rx_ts;
+	s->tsinfo[s->count].correction = correction;
+	s->count++;
+	return 0;
+}
+
+static int64_t tsinfo_get_error(struct tsinfo tsinfo)
+{
+	return tsinfo.rx_ts - tsinfo.tx_ts - tsinfo.correction;
+}
+
+static int64_t tsinfo_get_latency(struct tsinfo tsinfo)
+{
+	return tsinfo.rx_ts - tsinfo.tx_ts;
+}
+
+static void show_stats(Stats *s, char *p1, char *p2, int count_left)
+{
+	int64_t max_err, min_err, sum_err = 0;
+	int64_t max_lat, min_lat, sum_lat = 0;
+	int64_t timeerror, latency;
+
 	if (s->count == 0) {
 		printf("No measurements\n");
 		return;
@@ -155,25 +218,38 @@ static void show_stats(char *p1, char *p2, int count_left, struct stats *s)
 		printf("%d measurements\n", s->count);
 	printf("%s -> %s\n", p1, p2);
 
-	printf("Mean: %"PRId64"\n", s->total / s->count);
-	printf("Max : %"PRId64"\n", s->max);
-	printf("Min : %"PRId64"\n", s->min);
-	printf("=============\n");
-}
+	timeerror = tsinfo_get_error(s->tsinfo[0]);
+	latency = tsinfo_get_latency(s->tsinfo[0]);
+	max_err = timeerror;
+	min_err = timeerror;
+	max_lat = latency;
+	min_lat = latency;
 
-static void calc_stats(struct stats *s, int64_t total_err)
-{
-	if (s->count == 0) {
-		s->max = total_err;
-		s->min = total_err;
-	} else {
-		if (total_err > s->max)
-			s->max = total_err;
-		if (total_err < s->min)
-			s->min = total_err;
+	for (int i = 0; i < s->count; i++) {
+		timeerror = tsinfo_get_error(s->tsinfo[i]);
+		latency = tsinfo_get_latency(s->tsinfo[i]);
+		if (timeerror > max_err)
+			max_err = timeerror;
+		if (timeerror < min_err)
+			min_err = timeerror;
+		sum_err += timeerror;
+
+		if (latency > max_lat)
+			max_lat = latency;
+		if (latency < min_lat)
+			min_lat = latency;
+		sum_lat += latency;
 	}
-	s->total += total_err;
-	s->count++;
+
+	printf("--- TIME ERROR ---\n");
+	printf("Mean: %"PRId64"\n", sum_err / s->count);
+	printf("Max : %"PRId64"\n", max_err);
+	printf("Min : %"PRId64"\n", min_err);
+	printf("--- LATENCY ---\n");
+	printf("Mean: %"PRId64"\n", sum_lat / s->count);
+	printf("Max : %"PRId64"\n", max_lat);
+	printf("Min : %"PRId64"\n", min_lat);
+	printf("===============\n");
 }
 
 static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_sock)
@@ -181,9 +257,14 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 	int64_t rx_ts, tx_ts, correction, total_err;
 	struct hw_timestamp hwts;
 	struct timeval timeout;
-	struct stats s = { 0 };
+	uint16_t seqid;
+	Stats s;
 	int err;
 	int i;
+
+	err = init_stats(&s, cfg->count);
+	if (err)
+		return;
 
 	timeout.tv_sec = 0;
 	timeout.tv_usec = 10000;
@@ -200,7 +281,7 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 		correction = 0;
 
 		send_pkt(cfg, p1_sock, &tx_ts);
-		err = receive(cfg, p2_sock, &rx_ts, &correction);
+		err = receive(cfg, p2_sock, &rx_ts, &correction, &seqid);
 		if (err) {
 			printf("Stopping!\n");
 			break;
@@ -208,7 +289,9 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 
 		/* With a proper TC, only the cable delay should be left uncompensated for */
 		/* Total delay accrued (RX - TX - RESIDENCE - SELF.INGR_LAT - SELF.EGR_LAT) */
-		total_err = rx_ts - tx_ts - correction - cfg->ingressLatency - cfg->egressLatency;
+		tx_ts += cfg->egressLatency;
+		rx_ts -= cfg->ingressLatency;
+		total_err = rx_ts - tx_ts - correction;
 		DEBUG("%s -> %s. TX: %"PRId64". RX: %"PRId64". Corr: %"PRId64". Result: %"PRId64"\n", p1, p2, tx_ts, rx_ts, correction, total_err);
 		if (!debugen) {
 			printf(".");
@@ -216,12 +299,13 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 		}
 		if (cfg->count > 0)
 			cfg->count--;
-		calc_stats(&s, total_err);
+		add_stats(&s, tx_ts, rx_ts, correction, seqid);
 	}
 
 	if (!debugen && tc_running)
 		printf("\n");
-	show_stats(p1, p2, cfg->count, &s);
+	show_stats(&s, p1, p2, cfg->count);
+	free_stats(&s);
 }
 
 static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2, int *bidirectional)
