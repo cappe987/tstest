@@ -26,9 +26,8 @@
 #include "pkt.h"
 
 /* TODO:
- * - Aggregate measurements across some time?
- * - Run in both directions
  * - Support twostep mode? To test offloaded 2-step TC
+ * - Add support to reply to pdelay messages for P2P TC?
  */
 
 int tc_running = 1;
@@ -57,10 +56,11 @@ void tc_help()
 Usage:\n\
         tstest tc [options]\n\n\
 Options:\n\
-        -i <interface>\n\
+        -i <interface>. Must be used twice. Port PHCs must be synchronized or be the same\n\
         -I <interval ms>. Time between packets. Default 200 ms\n\
         -D <domain>. PTP domain number\n\
         -c <frame counts>. Default: 10. If 0, send until interrupted\n\
+        -b Bidirectional. Run measurements in both directions\n\
         -d Enable debug output\n\
 	-v <2|2.1> PTP version of the packet\n\
         -h help\n\
@@ -99,22 +99,81 @@ static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *co
 	return 1;
 }
 
-static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_sock)
+static void send_pkt(struct pkt_cfg *cfg, int sock, int64_t *tx_ts)
 {
 	struct hw_timestamp hwts;
-	struct timeval timeout;
-	int64_t rx_ts, tx_ts, correction, result;
 	int type;
-	int err;
 	int i;
 
 	hwts.type = cfg->tstype;
 	hwts.ts.ns = 0;
 
+	for (i = 0; i < cfg->sequence_length; i++) {
+		type = cfg->sequence_types[i];
+		build_and_send(cfg, sock, type, &hwts, tx_ts);
+		cfg->seq++;
+		/* Default: 100 ms */
+		usleep(cfg->interval * 1000);
+	}
+}
+
+struct stats {
+	int count;
+	int64_t total;
+	int64_t max;
+	int64_t min;
+};
+
+static void show_stats(char *p1, char *p2, int count_left, struct stats *s)
+{
+	if (s->count == 0) {
+		printf("No measurements\n");
+		return;
+	}
+
+	printf("===============\n");
+	if (count_left)
+		printf("%d measurements (exited early, expected %d)\n", s->count, s->count + count_left);
+	else
+		printf("%d measurements\n", s->count);
+	printf("%s -> %s\n", p1, p2);
+
+	printf("Mean: %"PRId64"\n", s->total / s->count);
+	printf("Max : %"PRId64"\n", s->max);
+	printf("Min : %"PRId64"\n", s->min);
+	printf("=============\n");
+}
+
+static void calc_stats(struct stats *s, int64_t total_err)
+{
+	if (s->count == 0) {
+		s->max = total_err;
+		s->min = total_err;
+	} else {
+		if (total_err > s->max)
+			s->max = total_err;
+		if (total_err < s->min)
+			s->min = total_err;
+	}
+	s->total += total_err;
+	s->count++;
+}
+
+static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_sock)
+{
+	int64_t rx_ts, tx_ts, correction, total_err;
+	struct hw_timestamp hwts;
+	struct timeval timeout;
+	struct stats s = { 0 };
+	int err;
+	int i;
+
 	timeout.tv_sec = 0;
 	timeout.tv_usec = 10000;
 
-	/* XXX: When swapping the ports, does this affect the TX timestamp??? */
+	/* XXX: When swapping the ports, does this affect the TX timestamp???
+	 * Maybe if longer tx_timestamp_timeout is required.
+	 */
 	if (setsockopt(p2_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0)
 		ERR("setsockopt failed: %m\n");
 
@@ -122,33 +181,33 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 		rx_ts = 0;
 		tx_ts = 0;
 		correction = 0;
-		hwts.ts.ns = 0;
-		for (i = 0; i < cfg->sequence_length; i++) {
-			type = cfg->sequence_types[i];
-			build_and_send(cfg, p1_sock, type, &hwts, &tx_ts);
-			cfg->seq++;
-			/* Default: 100 ms */
-			usleep(cfg->interval * 1000);
-		}
-		
+
+		send_pkt(cfg, p1_sock, &tx_ts);
 		err = receive(cfg, p2_sock, &rx_ts, &correction);
 		if (err) {
-			printf("Stopping...\n");
+			printf("Stopping!\n");
 			break;
 		}
-		DEBUG("TX: %"PRId64"\n", tx_ts);
-		DEBUG("RX: %"PRId64"\n", rx_ts);
-		DEBUG("CORR: %"PRId64"\n", correction);
-		result = rx_ts - tx_ts - correction - cfg->ingressLatency - cfg->egressLatency;
-		printf("%s -> %s: %"PRId64"\n", p1, p2, result);
-		cfg->count--;
+
 		/* With a proper TC, only the cable delay should be left uncompensated for */
 		/* Total delay accrued (RX - TX - RESIDENCE - SELF.INGR_LAT - SELF.EGR_LAT) */
+		total_err = rx_ts - tx_ts - correction - cfg->ingressLatency - cfg->egressLatency;
+		DEBUG("%s -> %s. TX: %"PRId64". RX: %"PRId64". Corr: %"PRId64". Result: %"PRId64"\n", p1, p2, tx_ts, rx_ts, correction, total_err);
+		if (!debugen) {
+			printf(".");
+			fflush(stdout);
+		}
+		if (cfg->count > 0)
+			cfg->count--;
+		calc_stats(&s, total_err);
 	}
 
+	if (!debugen && tc_running)
+		printf("\n");
+	show_stats(p1, p2, cfg->count, &s);
 }
 
-static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2)
+static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2, int *bidirectional)
 {
 	int type;
 	int c;
@@ -173,7 +232,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:", long_options, NULL)) !=
+	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:b", long_options, NULL)) !=
 	       -1) {
 		switch (c) {
 		case 1:
@@ -231,6 +290,9 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		case 'd':
 			debugen = 1;
 			break;
+		case 'b':
+			*bidirectional = 1;
+			break;
 		case 'h':
 			tc_help();
 			return EINVAL;
@@ -265,10 +327,11 @@ int run_tc_mode(int argc, char **argv)
 	struct pkt_cfg cfg = { 0 };
 	int p1_sock, p2_sock;
 	char *p1 = NULL, *p2 = NULL;
+	int bidirectional = 0;
 	int count;
 	int err;
 
-	err = tc_parse_opt(argc, argv, &cfg, &p1, &p2);
+	err = tc_parse_opt(argc, argv, &cfg, &p1, &p2, &bidirectional);
 	if (err)
 		return err;
 
@@ -305,6 +368,8 @@ int run_tc_mode(int argc, char **argv)
 	
 	count = cfg.count;
 	run(&cfg, p1, p2, p1_sock, p2_sock);
+	if (!bidirectional)
+		goto out;
 	if (!tc_running)
 		goto out;
 
