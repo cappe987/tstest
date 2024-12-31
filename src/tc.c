@@ -148,7 +148,7 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 	int err;
 	int i;
 
-	err = init_stats(&s, cfg->count);
+	err = stats_init(&s, cfg->count);
 	if (err)
 		return;
 
@@ -187,13 +187,14 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 		}
 		if (cfg->count > 0)
 			cfg->count--;
-		add_stats(&s, tx_ts, rx_ts, correction, seqid);
+		stats_add(&s, tx_ts, rx_ts, correction, seqid);
 	}
 
 	if (!debugen && tc_running)
 		printf("\n");
-	show_stats(&s, p1, p2, cfg->count);
-	free_stats(&s);
+	stats_show(&s, p1, p2, cfg->count);
+	stats_output_time_error(&s, "timeerror.dat");
+	stats_free(&s);
 }
 
 static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2,

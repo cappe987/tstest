@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
 
+#include "timestamping.h"
 #include <inttypes.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -15,7 +16,7 @@
      loop and return a struct with all results.
  */
 
-int init_stats(Stats *s, int size)
+int stats_init(Stats *s, int size)
 {
 	if (size == 0)
 		s->size = 100;
@@ -30,13 +31,13 @@ int init_stats(Stats *s, int size)
 	return 0;
 }
 
-void free_stats(Stats *s)
+void stats_free(Stats *s)
 {
 	free(s->tsinfo);
 	s->tsinfo = NULL;
 }
 
-int add_stats(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid)
+int stats_add(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid)
 {
 	if (s->count == s->size) {
 		s->size = s->size * 2;
@@ -139,7 +140,7 @@ Result stats_get_pdv(Stats *s)
 	return r;
 }
 
-void show_stats(Stats *s, char *p1, char *p2, int count_left)
+void stats_show(Stats *s, char *p1, char *p2, int count_left)
 {
 	if (s->count == 0) {
 		printf("No measurements\n");
@@ -171,4 +172,41 @@ void show_stats(Stats *s, char *p1, char *p2, int count_left)
 	printf("Max : %" PRId64 "\n", pdv.max);
 	printf("Min : %" PRId64 " (lucky packet)\n", pdv.min);
 	printf("===============\n");
+}
+
+static int ts_sec(int64_t ts)
+{
+	return ts / NS_PER_SEC;
+}
+
+static int ts_msec(int64_t ts)
+{
+	return (ts / 1000000) % 1000;
+}
+
+static void write_val_to_file(Stats *s, FILE *fp, struct tsinfo *tsinfo, int64_t val)
+{
+	int64_t curr_time;
+	curr_time = tsinfo->tx_ts - s->tsinfo[0].tx_ts;
+	fprintf(fp, "%d.%03d %" PRId64 "\n", ts_sec(curr_time), ts_msec(curr_time), val);
+}
+
+void stats_output_time_error(Stats *s, char *path)
+{
+	int64_t base_time, curr_time, time_error;
+	FILE *fp;
+
+	base_time = s->tsinfo[0].tx_ts;
+
+	fp = fopen(path, "w");
+	if (!fp) {
+		ERR("failed opening file %s: %m", path);
+		return;
+	}
+
+	for (int i = 0; i < s->count; i++) {
+		time_error = tsinfo_get_error(s->tsinfo[i]);
+		write_val_to_file(s, fp, &s->tsinfo[i], time_error);
+	}
+	fclose(fp);
 }

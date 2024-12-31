@@ -26,12 +26,13 @@ typedef struct {
 	struct tsinfo *tsinfo;
 } Stats;
 
-int init_stats(Stats *s, int size);
-void free_stats(Stats *s);
-int add_stats(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid);
+int stats_init(Stats *s, int size);
+void stats_free(Stats *s);
+int stats_add(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid);
 Result stats_get_time_error(Stats *s);
 Result stats_get_latency(Stats *s);
 Result stats_get_pdv(Stats *s);
-void show_stats(Stats *s, char *p1, char *p2, int count_left);
+void stats_show(Stats *s, char *p1, char *p2, int count_left);
+void stats_output_time_error(Stats *s, char *path);
 
 #endif /* __STATS_H__ */
