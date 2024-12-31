@@ -33,6 +33,6 @@ Result stats_get_time_error(Stats *s);
 Result stats_get_latency(Stats *s);
 Result stats_get_pdv(Stats *s);
 void stats_show(Stats *s, char *p1, char *p2, int count_left);
-void stats_output_time_error(Stats *s, char *path);
+void stats_output_measurements(Stats *s, char *path);
 
 #endif /* __STATS_H__ */

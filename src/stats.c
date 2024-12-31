@@ -191,9 +191,13 @@ static void write_val_to_file(Stats *s, FILE *fp, struct tsinfo *tsinfo, int64_t
 	fprintf(fp, "%d.%03d %" PRId64 "\n", ts_sec(curr_time), ts_msec(curr_time), val);
 }
 
-void stats_output_time_error(Stats *s, char *path)
+/* XXX: Should we output raw values instead? If we have a lot of
+ * measurements it might be easier to let external software do the
+ * calculations it wants to plot.
+ */
+void stats_output_measurements(Stats *s, char *path)
 {
-	int64_t base_time, curr_time, time_error;
+	int64_t base_time, curr_time, val, lucky_packet;
 	FILE *fp;
 
 	base_time = s->tsinfo[0].tx_ts;
@@ -204,9 +208,23 @@ void stats_output_time_error(Stats *s, char *path)
 		return;
 	}
 
+	fprintf(fp, "TIMEERROR\n");
 	for (int i = 0; i < s->count; i++) {
-		time_error = tsinfo_get_error(s->tsinfo[i]);
-		write_val_to_file(s, fp, &s->tsinfo[i], time_error);
+		val = tsinfo_get_error(s->tsinfo[i]);
+		write_val_to_file(s, fp, &s->tsinfo[i], val);
+	}
+	fprintf(fp, "\n");
+	fprintf(fp, "LATENCY\n");
+	for (int i = 0; i < s->count; i++) {
+		val = tsinfo_get_latency(s->tsinfo[i]);
+		write_val_to_file(s, fp, &s->tsinfo[i], val);
+	}
+	fprintf(fp, "\n");
+	fprintf(fp, "PDV\n");
+	lucky_packet = pdv_get_lucky_packet(s);
+	for (int i = 0; i < s->count; i++) {
+		val = (s->tsinfo[i].rx_ts - s->tsinfo[i].tx_ts) - lucky_packet;
+		write_val_to_file(s, fp, &s->tsinfo[i], val);
 	}
 	fclose(fp);
 }

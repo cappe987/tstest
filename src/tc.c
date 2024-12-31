@@ -193,7 +193,7 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 	if (!debugen && tc_running)
 		printf("\n");
 	stats_show(&s, p1, p2, cfg->count);
-	stats_output_time_error(&s, "timeerror.dat");
+	stats_output_measurements(&s, "measurements.dat");
 	stats_free(&s);
 }
 
