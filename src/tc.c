@@ -11,7 +11,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <signal.h>
-#include <pthread.h>
 #include <inttypes.h>
 
 #include "net_tstamp_cpy.h"
@@ -20,6 +19,7 @@
 #include "liblink.h"
 #include "tstest.h"
 #include "pkt.h"
+#include "stats.h"
 
 /* Measure the one-way inaccuracy through a TC. Runs on two ports that
  * are either synchronized or use the same PHC. The inaccuracies will
@@ -136,122 +136,6 @@ static void send_pkt(struct pkt_cfg *cfg, int sock, int64_t *tx_ts)
 		/* Default: 100 ms */
 		usleep(cfg->interval * 1000);
 	}
-}
-
-/* Ingress/egress latency of host should be accounted for in these timestamps */
-struct tsinfo {
-	uint16_t seqid;
-	int64_t tx_ts;
-	int64_t rx_ts;
-	int64_t correction;
-};
-
-typedef struct {
-	int count;
-	int size;
-	struct tsinfo *tsinfo;
-} Stats;
-
-static int init_stats(Stats *s, int size)
-{
-	if (size == 0)
-		s->size = 100;
-	else
-		s->size = size;
-	s->count = 0;
-	s->tsinfo = malloc(sizeof(struct tsinfo) * s->size);
-	if (!s->tsinfo) {
-		ERR("failed to allocate stats array");
-		return ENOMEM;
-	}
-	return 0;
-}
-
-static void free_stats(Stats *s)
-{
-	free(s->tsinfo);
-}
-
-static int add_stats(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid)
-{
-	if (s->count == s->size) {
-		s->size = s->size * 2;
-		s->tsinfo = realloc(s->tsinfo, sizeof(struct tsinfo) * s->size);
-		if (!s->tsinfo) {
-			ERR("failed to reallocate stats array");
-			return ENOMEM;
-		}
-	}
-
-	s->tsinfo[s->count].seqid = seqid;
-	s->tsinfo[s->count].tx_ts = tx_ts;
-	s->tsinfo[s->count].rx_ts = rx_ts;
-	s->tsinfo[s->count].correction = correction;
-	s->count++;
-	return 0;
-}
-
-static int64_t tsinfo_get_error(struct tsinfo tsinfo)
-{
-	return tsinfo.rx_ts - tsinfo.tx_ts - tsinfo.correction;
-}
-
-static int64_t tsinfo_get_latency(struct tsinfo tsinfo)
-{
-	return tsinfo.rx_ts - tsinfo.tx_ts;
-}
-
-static void show_stats(Stats *s, char *p1, char *p2, int count_left)
-{
-	int64_t max_err, min_err, sum_err = 0;
-	int64_t max_lat, min_lat, sum_lat = 0;
-	int64_t timeerror, latency;
-
-	if (s->count == 0) {
-		printf("No measurements\n");
-		return;
-	}
-
-	printf("===============\n");
-	if (count_left)
-		printf("%d measurements (exited early, expected %d)\n", s->count,
-		       s->count + count_left);
-	else
-		printf("%d measurements\n", s->count);
-	printf("%s -> %s\n", p1, p2);
-
-	timeerror = tsinfo_get_error(s->tsinfo[0]);
-	latency = tsinfo_get_latency(s->tsinfo[0]);
-	max_err = timeerror;
-	min_err = timeerror;
-	max_lat = latency;
-	min_lat = latency;
-
-	for (int i = 0; i < s->count; i++) {
-		timeerror = tsinfo_get_error(s->tsinfo[i]);
-		latency = tsinfo_get_latency(s->tsinfo[i]);
-		if (timeerror > max_err)
-			max_err = timeerror;
-		if (timeerror < min_err)
-			min_err = timeerror;
-		sum_err += timeerror;
-
-		if (latency > max_lat)
-			max_lat = latency;
-		if (latency < min_lat)
-			min_lat = latency;
-		sum_lat += latency;
-	}
-
-	printf("--- TIME ERROR ---\n");
-	printf("Mean: %" PRId64 "\n", sum_err / s->count);
-	printf("Max : %" PRId64 "\n", max_err);
-	printf("Min : %" PRId64 "\n", min_err);
-	printf("--- LATENCY ---\n");
-	printf("Mean: %" PRId64 "\n", sum_lat / s->count);
-	printf("Max : %" PRId64 "\n", max_lat);
-	printf("Min : %" PRId64 "\n", min_lat);
-	printf("===============\n");
 }
 
 static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_sock)
