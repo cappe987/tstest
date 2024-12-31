@@ -34,7 +34,7 @@ install(TARGETS tstest
 
 add_custom_target(test
 	COMMAND
-	unshare -r -n ${PROJECT_SOURCE_DIR}/test/test.sh ${PROJECT_BINARY_DIR}/tstest $(t)
+	unshare -r -n ${PROJECT_SOURCE_DIR}/scripts/test.sh ${PROJECT_BINARY_DIR}/tstest $(t)
 	DEPENDS ${PROJECT_BINARY_DIR}/tstest
 	)
 
@@ -42,7 +42,7 @@ add_custom_target(test
 # problematic there on Ubuntu 24.04.
 add_custom_target(pipeline_test
 	COMMAND
-	${PROJECT_SOURCE_DIR}/test/test.sh ${PROJECT_BINARY_DIR}/tstest $(t)
+	${PROJECT_SOURCE_DIR}/scripts/test.sh ${PROJECT_BINARY_DIR}/tstest $(t)
 	DEPENDS ${PROJECT_BINARY_DIR}/tstest
 	)
 
