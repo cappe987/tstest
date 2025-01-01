@@ -91,8 +91,7 @@ static void sig_handler(int sig)
 	tc_running = 0;
 }
 
-static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *correction,
-		   uint16_t *seqid)
+static int receive(struct pkt_cfg *cfg, int p2_sock, PortRecord *pr)
 {
 	struct hw_timestamp hwts;
 	unsigned char buf[1600];
@@ -104,25 +103,30 @@ static int receive(struct pkt_cfg *cfg, int p2_sock, int64_t *rx_ts, int64_t *co
 
 	rx_msg = (union Message *)buf;
 
-	while (tc_running) {
+	do {
 		cnt = sk_receive(p2_sock, rx_msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
 		/* TODO: Handle receiving other packet types here
 		 * (e.g. pdelays). We only want to consider Syncs
+		 * Handle onestep syncs.
 		 */
 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
 			continue;
-		*seqid = be16toh(rx_msg->hdr.sequenceId);
-		*rx_ts = hwts.ts.ns;
-		*correction = be64toh(rx_msg->hdr.correction) >> 16;
+		record_add_rx_msg(pr, rx_msg, &hwts.ts.ns);
+		/* seqid = be16toh(rx_msg->hdr.sequenceId); */
+		/* rx_ts = hwts.ts.ns; */
+		/* correction = be64toh(rx_msg->hdr.correction) >> 16; */
 		return 0;
-	}
+	} while (tc_running);
 
 	return 1;
 }
 
-static void send_pkt(struct pkt_cfg *cfg, int sock, int64_t *tx_ts)
+static void send_pkt(struct pkt_cfg *cfg, int sock, PortRecord *pr)
 {
 	struct hw_timestamp hwts;
+	union Message msg;
+	;
+	int64_t tx_ts;
 	int type;
 	int i;
 
@@ -131,7 +135,10 @@ static void send_pkt(struct pkt_cfg *cfg, int sock, int64_t *tx_ts)
 
 	for (i = 0; i < cfg->sequence_length; i++) {
 		type = cfg->sequence_types[i];
-		build_and_send(cfg, sock, type, &hwts, tx_ts);
+		msg = build_msg(cfg, type);
+		send_msg(cfg, sock, &msg, &tx_ts);
+		record_add_tx_msg(pr, &msg, &tx_ts);
+		/* build_and_send(cfg, sock, type, &hwts, tx_ts); */
 		cfg->seq++;
 		/* Default: 100 ms */
 		usleep(cfg->interval * 1000);
@@ -143,11 +150,15 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 	int64_t rx_ts, tx_ts, correction, total_err;
 	struct hw_timestamp hwts;
 	struct timeval timeout;
+	PortRecord pr_tx;
+	PortRecord pr_rx;
 	uint16_t seqid;
 	Stats s;
 	int err;
 	int i;
 
+	record_init(&pr_tx, p1, 100);
+	record_init(&pr_rx, p2, 100);
 	err = stats_init(&s, cfg->count);
 	if (err)
 		return;
@@ -166,35 +177,37 @@ static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_soc
 		tx_ts = 0;
 		correction = 0;
 
-		send_pkt(cfg, p1_sock, &tx_ts);
-		err = receive(cfg, p2_sock, &rx_ts, &correction, &seqid);
-		if (err) {
+		send_pkt(cfg, p1_sock, &pr_tx);
+		err = receive(cfg, p2_sock, &pr_rx);
+		if (err || !tc_running) {
 			printf("Stopping!\n");
 			break;
 		}
 
 		/* With a proper TC, only the cable delay should be left uncompensated for */
 		/* Total delay accrued (RX - TX - RESIDENCE - SELF.INGR_LAT - SELF.EGR_LAT) */
-		tx_ts += cfg->egressLatency;
-		rx_ts -= cfg->ingressLatency;
-		total_err = rx_ts - tx_ts - correction;
-		DEBUG("%s -> %s. TX: %" PRId64 ". RX: %" PRId64 ". Corr: %" PRId64
-		      ". Result: %" PRId64 "\n",
-		      p1, p2, tx_ts, rx_ts, correction, total_err);
+		/* tx_ts += cfg->egressLatency; */
+		/* rx_ts -= cfg->ingressLatency; */
+		/* total_err = rx_ts - tx_ts - correction; */
+		/* DEBUG("%s -> %s. TX: %" PRId64 ". RX: %" PRId64 ". Corr: %" PRId64 */
+		/*       ". Result: %" PRId64 "\n", */
+		/*       p1, p2, tx_ts, rx_ts, correction, total_err); */
 		if (!debugen) {
 			printf(".");
 			fflush(stdout);
 		}
 		if (cfg->count > 0)
 			cfg->count--;
-		stats_add(&s, tx_ts, rx_ts, correction, seqid);
 	}
 
 	if (!debugen && tc_running)
 		printf("\n");
+	record_map_messages(&s, &pr_tx, &pr_rx);
 	stats_show(&s, p1, p2, cfg->count);
 	stats_output_measurements(&s, "measurements.dat");
 	stats_free(&s);
+	record_free(&pr_tx);
+	record_free(&pr_rx);
 }
 
 static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2,

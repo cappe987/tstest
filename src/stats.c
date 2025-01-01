@@ -1,20 +1,42 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
 
-#include "timestamping.h"
 #include <inttypes.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <linux/if_ether.h>
 
+#include "pkt.h"
+#include "timestamping.h"
 #include "liblink.h"
 #include "stats.h"
+#include "tstest.h"
 
 /* TODO:
  * - If performance becomes slow, aggregate all calculations into one
      loop and return a struct with all results.
  */
+
+static void print_tsinfo(struct tsinfo *tsinfo)
+{
+	DEBUG("TSINFO Type     %s\n", ptp_type2str(tsinfo->ptp_type));
+	DEBUG("TSINFO Seq      %u\n", tsinfo->seqid);
+	DEBUG("TSINFO src_self %u\n", tsinfo->src_is_self);
+	DEBUG("TSINFO TX_TS    %" PRId64 "\n", tsinfo->tx_ts);
+	DEBUG("TSINFO RX_TS    %" PRId64 "\n", tsinfo->rx_ts);
+	DEBUG("TSINFO CORR     %" PRId64 "\n", tsinfo->correction);
+}
+
+static void print_message_record(char *port, MessageRecord *m)
+{
+	DEBUG("----- Port %s ---------\n", port);
+	DEBUG("MR Type     %s\n", ptp_type2str(m->ptp_type));
+	DEBUG("MR Seq      %u\n", m->seqid);
+	DEBUG("MR src_self %u\n", m->src_is_self);
+	DEBUG("MR TX_TS    %" PRId64 "\n", m->tx_ts);
+	DEBUG("MR RX_TS    %" PRId64 "\n", m->rx_ts);
+}
 
 int stats_init(Stats *s, int size)
 {
@@ -34,24 +56,33 @@ int stats_init(Stats *s, int size)
 void stats_free(Stats *s)
 {
 	free(s->tsinfo);
+	s->count = 0;
+	s->size = 0;
 	s->tsinfo = NULL;
 }
 
-int stats_add(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid)
+/* int stats_add(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid) */
+int stats_add(Stats *s, struct tsinfo tsinfo)
 {
+	struct tsinfo *tmp;
+
 	if (s->count == s->size) {
 		s->size = s->size * 2;
-		s->tsinfo = realloc(s->tsinfo, sizeof(struct tsinfo) * s->size);
-		if (!s->tsinfo) {
+		tmp = realloc(s->tsinfo, sizeof(struct tsinfo) * s->size);
+		if (!tmp) {
 			ERR("failed to reallocate stats array");
 			return ENOMEM;
 		}
+		s->tsinfo = tmp;
 	}
 
-	s->tsinfo[s->count].seqid = seqid;
-	s->tsinfo[s->count].tx_ts = tx_ts;
-	s->tsinfo[s->count].rx_ts = rx_ts;
-	s->tsinfo[s->count].correction = correction;
+	/* s->tsinfo[s->count].seqid = seqid; */
+	/* s->tsinfo[s->count].tx_ts = tx_ts; */
+	/* s->tsinfo[s->count].rx_ts = rx_ts; */
+	/* s->tsinfo[s->count].correction = correction; */
+	/* s->tsinfo[s->count].tx_saved = true; */
+	/* s->tsinfo[s->count].rx_saved = true; */
+	s->tsinfo[s->count] = tsinfo;
 	s->count++;
 	return 0;
 }
@@ -147,7 +178,6 @@ void stats_show(Stats *s, char *p1, char *p2, int count_left)
 		return;
 	}
 
-	printf("===============\n");
 	if (count_left)
 		printf("%d measurements (exited early, expected %d)\n", s->count,
 		       s->count + count_left);
@@ -171,7 +201,6 @@ void stats_show(Stats *s, char *p1, char *p2, int count_left)
 	printf("Mean: %" PRId64 "\n", pdv.mean);
 	printf("Max : %" PRId64 "\n", pdv.max);
 	printf("Min : %" PRId64 " (lucky packet)\n", pdv.min);
-	printf("===============\n");
 }
 
 static int ts_sec(int64_t ts)
@@ -227,4 +256,210 @@ void stats_output_measurements(Stats *s, char *path)
 		write_val_to_file(s, fp, &s->tsinfo[i], val);
 	}
 	fclose(fp);
+}
+
+int record_init(PortRecord *pr, char *portname, int size)
+{
+	if (size == 0)
+		pr->size = 100;
+	else
+		pr->size = size;
+	pr->count = 0;
+	pr->portname = portname;
+	pr->msgs = malloc(sizeof(MessageRecord) * pr->size);
+	if (!pr->msgs) {
+		ERR("failed to allocate stats array");
+		return ENOMEM;
+	}
+	return 0;
+}
+
+int record_add_tx_msg(PortRecord *pr, union Message *msg, int64_t *tx_ts)
+{
+	int type = msg_get_type(msg);
+	int prev_size = pr->size;
+	MessageRecord *tmp;
+	MessageRecord *new;
+
+	if (pr->count == pr->size) {
+		pr->size = pr->size * 2;
+		tmp = realloc(pr->msgs, sizeof(MessageRecord) * pr->size);
+		if (!tmp) {
+			ERR("failed to reallocate stats array");
+			return ENOMEM;
+		}
+		pr->msgs = tmp;
+		/* 	for (int i = prev_size; i < pr->size; i++) { */
+		/* 		memset(&pr->msgs[i], 0, sizeof(MessageRecord)); */
+		/* 	} */
+	}
+
+	/* DEBUG("Add TX %s: tx_ts %" PRId64"\n", ptp_type2str(msg_get_type(msg)), *tx_ts); */
+	new = &pr->msgs[pr->count];
+	memcpy(&new->msg, msg, sizeof(union Message));
+	new->ptp_type = msg_get_type(msg);
+	new->tx_saved = false;
+	if (tx_ts) {
+		new->tx_ts = *tx_ts;
+		new->tx_saved = true;
+	}
+	new->seqid = be16toh(msg->hdr.sequenceId);
+	/* printf("Seqid %u\n", new->seqid); */
+	new->rx_ts = 0;
+	new->rx_saved = false;
+	new->src_is_self = true;
+	pr->count++;
+
+	print_message_record(pr->portname, new);
+	return 0;
+}
+
+int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts)
+{
+	int type = msg_get_type(msg);
+	int prev_size = pr->size;
+	MessageRecord *tmp;
+	MessageRecord *new;
+
+	if (pr->count == pr->size) {
+		pr->size = pr->size * 2;
+		tmp = realloc(pr->msgs, sizeof(MessageRecord) * pr->size);
+		if (!tmp) {
+			ERR("failed to reallocate stats array");
+			return ENOMEM;
+		}
+		pr->msgs = tmp;
+		/* 	for (int i = prev_size; i < pr->size; i++) { */
+		/* 		memset(&pr->msgs[i], 0, sizeof(MessageRecord)); */
+		/* 	} */
+	}
+
+	/* DEBUG("Add RX %s: rx_ts %" PRId64"\n", ptp_type2str(msg_get_type(msg)), *rx_ts); */
+	new = &pr->msgs[pr->count];
+	memcpy(&new->msg, msg, sizeof(union Message));
+	new->ptp_type = msg_get_type(msg);
+	new->rx_saved = false;
+	if (rx_ts) {
+		new->rx_ts = *rx_ts;
+		new->rx_saved = true;
+	}
+	new->seqid = be16toh(msg->hdr.sequenceId);
+	new->tx_ts = 0;
+	new->tx_saved = false;
+	/* Untested */
+	/* TODO: How should we handle onestep timestamps for pdelay? */
+	if (new->ptp_type == SYNC) {
+		if (msg_is_onestep(msg)) {
+			new->tx_ts = msg_get_origin_timestamp(msg);
+			new->tx_saved = true;
+		}
+	}
+	new->src_is_self = false;
+	if (memcmp(msg->hdr.sourcePortIdentity.clockIdentity.id, ptp_default_clockid(), 8) == 0)
+		new->src_is_self = true;
+	pr->count++;
+
+	print_message_record(pr->portname, new);
+	return 0;
+}
+
+static struct tsinfo *stats_get_record(Stats *s, uint8_t ptp_type, uint16_t seqid)
+{
+	for (int i = 0; i < s->count; i++) {
+		if (s->tsinfo[i].ptp_type == ptp_type && s->tsinfo[i].seqid == seqid)
+			return &s->tsinfo[i];
+	}
+	return NULL;
+}
+
+static uint8_t get_primary_type(MessageRecord *m)
+{
+	if (m->ptp_type == SYNC || m->ptp_type == FOLLOW_UP)
+		return SYNC;
+	if (m->ptp_type == DELAY_REQ || m->ptp_type == DELAY_RESP)
+		return DELAY_REQ;
+	if (m->ptp_type == PDELAY_REQ || m->ptp_type == PDELAY_RESP ||
+	    m->ptp_type == PDELAY_RESP_FUP)
+		return PDELAY_REQ;
+	ERR("Unexpected PTP message type %d encountered\n", m->ptp_type);
+	return m->ptp_type;
+}
+
+/* static int is_matching_types(MessageRecord *m1, MessageRecord *m2) */
+/* { */
+/* 	return get_primary_type(m1) == get_primary_type(m2); */
+/* } */
+
+static int record_map_msg_to_tsinfo(Stats *s, MessageRecord *m, struct tsinfo *tsinfo)
+{
+	if (m->tx_saved) {
+		if (tsinfo->tx_saved && m->tx_ts != tsinfo->tx_ts) {
+			ERR("Record and tsinfo has different tx_ts. %" PRId64 " and %" PRId64 "\n",
+			    m->tx_ts, tsinfo->tx_ts);
+		}
+		tsinfo->tx_ts = m->tx_ts;
+		tsinfo->tx_saved = true;
+	}
+
+	if (m->rx_saved) {
+		if (tsinfo->rx_saved && m->rx_ts != tsinfo->rx_ts) {
+			ERR("Record and tsinfo has different rx_ts. %" PRId64 " and %" PRId64 "\n",
+			    m->rx_ts, tsinfo->rx_ts);
+		}
+		tsinfo->rx_ts = m->rx_ts;
+		/* Add correction. Adjustments can be made in any packet */
+		tsinfo->correction += be64toh(m->msg.hdr.correction) >> 16;
+		tsinfo->rx_saved = true;
+	}
+
+	return 0;
+}
+
+static struct tsinfo record_msg_to_tsinfo(MessageRecord *m)
+{
+	struct tsinfo tsinfo = { 0 };
+
+	tsinfo.ptp_type = get_primary_type(m);
+	tsinfo.seqid = m->seqid;
+	tsinfo.src_is_self = m->src_is_self;
+	if (m->tx_saved) {
+		tsinfo.tx_ts = m->tx_ts;
+		tsinfo.tx_saved = true;
+	}
+	if (m->rx_saved) {
+		tsinfo.rx_ts = m->rx_ts;
+		tsinfo.correction = be64toh(m->msg.hdr.correction) >> 16;
+		tsinfo.rx_saved = true;
+	}
+	return tsinfo;
+}
+
+void record_map_messages(Stats *s, PortRecord *p1, PortRecord *p2)
+{
+	MessageRecord *m1, *m2;
+	struct tsinfo *tsinfo;
+	int matched = 0;
+
+	for (int i = 0; i < p1->count; i++) {
+		m1 = &p1->msgs[i];
+		stats_add(s, record_msg_to_tsinfo(m1));
+	}
+
+	for (int i = 0; i < p2->count; i++) {
+		m2 = &p2->msgs[i];
+		tsinfo = stats_get_record(s, get_primary_type(m2), m2->seqid);
+		if (!tsinfo) {
+			stats_add(s, record_msg_to_tsinfo(m2));
+			continue;
+		}
+		record_map_msg_to_tsinfo(s, m2, tsinfo);
+	}
+}
+
+void record_free(PortRecord *pr)
+{
+	free(pr->msgs);
+	pr->count = 0;
+	pr->size = 0;
+	pr->msgs = NULL;
 }
