@@ -116,6 +116,20 @@ int msg_get_type(union Message *msg)
 	return msg->hdr.tsmt & 0xF;
 }
 
+int msg_is_onestep(union Message *msg)
+{
+	return !(msg->hdr.flagField[0] & 0x02);
+}
+
+int64_t msg_get_origin_timestamp(union Message *msg)
+{
+	int64_t ns;
+	ns = msg->sync.originTimestamp.nanoseconds;
+	ns += (int64_t)msg->sync.originTimestamp.seconds_lsb * NS_PER_SEC;
+	ns += ((int64_t)msg->sync.originTimestamp.seconds_msb << 32) * NS_PER_SEC;
+	return ns;
+}
+
 union Message build_msg(struct pkt_cfg *cfg, int type)
 {
 	struct ptp_header hdr;
