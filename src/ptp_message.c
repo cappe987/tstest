@@ -4,12 +4,19 @@
 #include "timestamping.h"
 #include "tstest.h"
 
+const char *ptp_default_clockid()
+{
+	return "\x00\x00\x00\xff\xfe\xaa\xaa\xaa";
+}
+
 struct ptp_header ptp_header_template()
 {
 	struct ptp_header hdr = { 0 };
+	Octet dmac[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+	Octet smac[] = { 0x00, 0x00, 0x00, 0xaa, 0xaa, 0xaa };
 
-	ptp_set_dmac(&hdr, "\xff\xff\xff\xff\xff\xff");
-	ptp_set_smac(&hdr, "\x00\x00\x00\xaa\xaa\xaa");
+	ptp_set_dmac(&hdr, dmac);
+	ptp_set_smac(&hdr, smac);
 	memcpy(&hdr.ethertype, "\x88\xf7", 2);
 
 	ptp_set_version(&hdr, 2);
@@ -17,7 +24,7 @@ struct ptp_header ptp_header_template()
 	hdr.messageLength = htons(0x2c);
 	hdr.domainNumber = 0x00;
 	hdr.flagField[0] = 0x02;
-	memcpy(&hdr.sourcePortIdentity.clockIdentity.id, "\x00\x00\x00\xff\xfe\xaa\xaa\xaa", 6);
+	memcpy(&hdr.sourcePortIdentity.clockIdentity.id, ptp_default_clockid(), 6);
 	hdr.sourcePortIdentity.portNumber = htons(0x1);
 	ptp_set_seqId(&hdr, 0);
 

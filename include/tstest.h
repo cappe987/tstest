@@ -215,6 +215,7 @@ int run_check_mode(int argc, char **argv);
 int run_tc_mode(int argc, char **argv);
 
 /* ptp_message.c */
+const char *ptp_default_clockid();
 int str2ptp_type(const char *str);
 char *ptp_type2str(int type);
 int ptp_type2controlField(int type);

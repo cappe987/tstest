@@ -143,7 +143,6 @@ int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns)
 
 	hwts.type = cfg->tstype;
 	event_type = get_event_type(cfg, type);
-	/* printf("type %d\n", type); */
 	size = ptp_msg_get_size(type);
 	memset(buf, 0, 1500);
 	memcpy(buf, msg, size);
@@ -158,11 +157,9 @@ int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns)
 
 	err = raw_send(sock, event_type, buf, size, &hwts);
 	*ns = hwts.ts.ns;
-	/* printf("NS: %ld\n", hwts.ts.ns); */
 	return err;
 }
 
-// TODO: handle VLAN
 int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts, int64_t *ns)
 {
 	struct ptp_header hdr;
@@ -170,24 +167,8 @@ int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp 
 	int event_type;
 	int err;
 
-	hdr = ptp_header_template();
-	ptp_set_type(&hdr, type);
-	ptp_set_seqId(&hdr, cfg->seq);
-	ptp_set_dmac(&hdr, (unsigned char *)cfg->mac);
-	ptp_set_transport_specific(&hdr, cfg->transportSpecific);
-	ptp_set_version(&hdr, cfg->version);
-	ptp_set_domain(&hdr, cfg->domain);
-
-	set_two_step_flag(cfg, &hdr, type);
-
-	tx_msg = ptp_msg_create_type(hdr, type);
-
-	event_type = get_event_type(cfg, type);
-
-	err = raw_send(sock, event_type, &tx_msg, ptp_msg_get_size(type), hwts);
-	*ns = hwts->ts.ns;
-	hwts->ts.ns = 0;
-	return err;
+	tx_msg = build_msg(cfg, type);
+	return send_msg(cfg, sock, &tx_msg, ns);
 }
 
 static int send_print(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts)
