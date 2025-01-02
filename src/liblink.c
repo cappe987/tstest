@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
+// SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 
 #include <linux/if_ether.h>
 #include <netinet/ip.h>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
+// SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 
 #include "timestamping.h"
 #include "tstest.h"

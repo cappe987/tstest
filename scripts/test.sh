@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
+# SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 
 tstest=$1
 TEST=$2

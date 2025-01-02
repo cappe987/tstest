@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
+# SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 #!/bin/bash
 
 metric=$1
