@@ -1,23 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
 
-#include <endian.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
 #include <errno.h>
-#include <string.h>
-#include <sys/types.h>
 #include <unistd.h>
 #include <signal.h>
-#include <inttypes.h>
 
-#include "net_tstamp_cpy.h"
-
-#include "timestamping.h"
 #include "liblink.h"
-#include "tstest.h"
 #include "pkt.h"
 #include "stats.h"
 

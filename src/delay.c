@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
-#include "net_tstamp_cpy.h"
 #include <stdlib.h>
 #include <getopt.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <errno.h>
 
-#include "timestamping.h"
 #include "liblink.h"
-#include "tstest.h"
 #include "pkt.h"
 
 /* TODO:
@@ -200,6 +197,7 @@ int run_delay_client(int e_sock, int g_sock, struct delay_cfg *cfg)
 int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 {
 	Integer64 corrField = 0, req_rx_ts = 0, resp_tx_ts = 0;
+	uint8_t smac[] = { 0x00, 0x00, 0x00, 0xbb, 0xbb, 0xbb };
 	enum transport_event resp_event_type;
 	struct hw_timestamp hwts = { 0 };
 	unsigned char buf[1600];
@@ -231,7 +229,7 @@ int run_delay_server(int e_sock, int g_sock, struct delay_cfg *cfg)
 		 * Maybe implement option A later.
 		 * */
 		ptp_set_type(&recv->hdr, PDELAY_RESP);
-		ptp_set_smac(&recv->hdr, "\x00\x00\x00\xbb\xbb\xbb");
+		ptp_set_smac(&recv->hdr, smac);
 		memcpy(&recv->pdelay_resp.requestingPortIdentity, &recv->hdr.sourcePortIdentity,
 		       sizeof(struct PortIdentity));
 		// TODO: Set our own sourcePortIdentity

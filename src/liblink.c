@@ -78,6 +78,7 @@ int get_iface_mac(char ifname[IFNAMSIZ], unsigned char mac_address[ETH_ALEN])
 	if (success)
 		memcpy(mac_address, ifr.ifr_hwaddr.sa_data, 6);
 	close(sock);
+	return 0;
 }
 
 void set_dmac(unsigned char *frame, unsigned char mac[ETH_ALEN])

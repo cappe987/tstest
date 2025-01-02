@@ -5,6 +5,7 @@
 #define __LIBLINK_H__
 
 #include <net/if.h>
+#include <linux/if_ether.h>
 
 #define ERR(str, ...) fprintf(stderr, "Error: " str "\n", ##__VA_ARGS__)
 #define ERR_NO(str, ...) fprintf(stderr, "Error: " str ": %s\n", ##__VA_ARGS__, strerror(errno))

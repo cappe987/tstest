@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2023 Casper Andersson <casper.casan@gmail.com>
 
-#ifndef __TS_TEST_H__
-#define __TS_TEST_H__
+#ifndef __TSTEST_H__
+#define __TSTEST_H__
 
 #include <string.h>
 #include <arpa/inet.h>
@@ -279,4 +279,4 @@ static void ptp_set_flags(struct ptp_header *hdr, UInteger16 flags)
 	hdr->flagField[0] = flags;
 }
 
-#endif /* __TS_TEST_H__ */
+#endif /* __TSTEST_H__ */

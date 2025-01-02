@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
 
-#ifndef __STATS_H__
-#define __STATS_H__
+#ifndef __TSTEST_STATS_H__
+#define __TSTEST_STATS_H__
 
 #include <inttypes.h>
 #include <stdbool.h>
-#include <stdint.h>
 
 #include "tstest.h"
 
@@ -75,4 +74,4 @@ int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts);
 void record_map_messages(Stats *s, PortRecord *p1, PortRecord *p2);
 void record_free(PortRecord *pr);
 
-#endif /* __STATS_H__ */
+#endif /* __TSTEST_STATS_H__ */

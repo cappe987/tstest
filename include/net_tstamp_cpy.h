@@ -92,14 +92,16 @@ struct hwtstamp_config {
 
 /* possible values for hwtstamp_config->flags */
 enum hwtstamp_flags {
-	/*
+/*
 	 * With this flag, the user could get bond active interface's
 	 * PHC index. Note this PHC index is not stable as when there
 	 * is a failover, the bond active interface will be changed, so
 	 * will be the PHC index.
 	 */
+#ifndef HWTSTAMP_FLAG_BONDED_PHC_INDEX
 	HWTSTAMP_FLAG_BONDED_PHC_INDEX = (1 << 0),
 #define HWTSTAMP_FLAG_BONDED_PHC_INDEX HWTSTAMP_FLAG_BONDED_PHC_INDEX
+#endif
 
 	HWTSTAMP_FLAG_LAST = HWTSTAMP_FLAG_BONDED_PHC_INDEX,
 	HWTSTAMP_FLAG_MASK = (HWTSTAMP_FLAG_LAST - 1) | HWTSTAMP_FLAG_LAST

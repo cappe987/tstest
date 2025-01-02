@@ -38,6 +38,7 @@ typedef struct {
 enum {
 	HWTSTAMP_FLAG_BONDED_PHC_INDEX = (1 << 0),
 };
+#define HWTSTAMP_FLAG_BONDED_PHC_INDEX HWTSTAMP_FLAG_BONDED_PHC_INDEX
 #endif
 
 /* Defines the available Hardware time-stamp setting modes. */

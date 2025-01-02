@@ -5,13 +5,10 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <linux/if_ether.h>
 
 #include "pkt.h"
-#include "timestamping.h"
 #include "liblink.h"
 #include "stats.h"
-#include "tstest.h"
 
 /* TODO:
  * - If performance becomes slow, aggregate all calculations into one

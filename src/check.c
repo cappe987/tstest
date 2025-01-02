@@ -5,11 +5,7 @@
 #include <errno.h>
 #include <unistd.h>
 
-#include "net_tstamp_cpy.h"
-
-#include "timestamping.h"
 #include "liblink.h"
-#include "tstest.h"
 #include "pkt.h"
 
 /* #define TEST_PASS 0 */
@@ -430,7 +426,9 @@ int check_p2p1step_ts(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)
 {
 	cfg->tstype = TS_P2P1STEP;
 
+	printf("NOT IMPLEMENTED\n");
 	// TODO: Check correctionField? Potentially it could work with originTimestamp
+	return 0;
 }
 
 int check_software_timestamp(struct pkt_cfg *cfg, char *tx_iface, char *rx_iface)

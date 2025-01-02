@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2024 Casper Andersson <casper.casan@gmail.com>
 
+#ifndef __TSTEST_PKT_H__
+#define __TSTEST_PKT_H__
+
 #include "net_tstamp_cpy.h"
 #include "timestamping.h"
 #include "tstest.h"
@@ -41,3 +44,5 @@ int64_t msg_get_origin_timestamp(union Message *msg);
 union Message build_msg(struct pkt_cfg *cfg, int type);
 int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns);
 int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts, int64_t *ns);
+
+#endif /* __TSTEST_PKT_H__ */
