@@ -94,11 +94,11 @@ static int64_t tsinfo_get_latency(struct tsinfo tsinfo)
 	return tsinfo.rx_ts - tsinfo.tx_ts;
 }
 
-Result stats_get_time_error(Stats *s)
+StatsResult stats_get_time_error(Stats *s)
 {
 	int64_t sum_err = 0;
 	int64_t timeerror;
-	Result r;
+	StatsResult r;
 
 	timeerror = tsinfo_get_error(s->tsinfo[0]);
 	r.max = timeerror;
@@ -115,11 +115,11 @@ Result stats_get_time_error(Stats *s)
 	return r;
 }
 
-Result stats_get_latency(Stats *s)
+StatsResult stats_get_latency(Stats *s)
 {
 	int64_t sum_lat = 0;
 	int64_t latency;
-	Result r;
+	StatsResult r;
 
 	latency = tsinfo_get_latency(s->tsinfo[0]);
 	r.max = latency;
@@ -150,10 +150,10 @@ static int64_t pdv_get_lucky_packet(Stats *s)
 	return lucky_packet;
 }
 
-Result stats_get_pdv(Stats *s)
+StatsResult stats_get_pdv(Stats *s)
 {
 	int64_t lucky_packet, tmp, sum = 0;
-	Result r = { 0 };
+	StatsResult r = { 0 };
 
 	lucky_packet = pdv_get_lucky_packet(s);
 	r.max = 0;
@@ -182,9 +182,9 @@ void stats_show(Stats *s, char *p1, char *p2, int count_left)
 		printf("%d measurements\n", s->count);
 	printf("%s -> %s\n", p1, p2);
 
-	Result time_error = stats_get_time_error(s);
-	Result latency = stats_get_latency(s);
-	Result pdv = stats_get_pdv(s);
+	StatsResult time_error = stats_get_time_error(s);
+	StatsResult latency = stats_get_latency(s);
+	StatsResult pdv = stats_get_pdv(s);
 
 	printf("--- TIME ERROR ---\n");
 	printf("Mean: %" PRId64 "\n", time_error.mean);

@@ -13,7 +13,7 @@ typedef struct {
 	int64_t mean;
 	int64_t max;
 	int64_t min;
-} Result;
+} StatsResult;
 
 /* Ingress/egress latency of host should be accounted for in these timestamps */
 struct tsinfo {
@@ -62,9 +62,9 @@ typedef struct {
 int stats_init(Stats *s, int size);
 void stats_free(Stats *s);
 int stats_add(Stats *s, struct tsinfo tsinfo);
-Result stats_get_time_error(Stats *s);
-Result stats_get_latency(Stats *s);
-Result stats_get_pdv(Stats *s);
+StatsResult stats_get_time_error(Stats *s);
+StatsResult stats_get_latency(Stats *s);
+StatsResult stats_get_pdv(Stats *s);
 void stats_show(Stats *s, char *p1, char *p2, int count_left);
 void stats_output_measurements(Stats *s, char *path);
 

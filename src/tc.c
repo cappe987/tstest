@@ -36,8 +36,6 @@
  * - Add support to reply to pdelay messages for P2P TC?
  */
 
-int tc_running = 1;
-
 #ifndef SO_TIMESTAMPING
 #define SO_TIMESTAMPING 37
 #define SCM_TIMESTAMPING SO_TIMESTAMPING
@@ -77,42 +75,36 @@ Options:\n\
         \n");
 }
 
-static void sig_handler(int sig)
-{
-	tc_running = 0;
-}
+/* static int receive(struct pkt_cfg *cfg, int p2_sock, PortRecord *pr) */
+/* { */
+/* 	struct hw_timestamp hwts; */
+/* 	unsigned char buf[1600]; */
+/* 	union Message *rx_msg; */
+/* 	int cnt; */
 
-static int receive(struct pkt_cfg *cfg, int p2_sock, PortRecord *pr)
-{
-	struct hw_timestamp hwts;
-	unsigned char buf[1600];
-	union Message *rx_msg;
-	int cnt;
+/* 	hwts.type = cfg->tstype; */
+/* 	hwts.ts.ns = 0; */
 
-	hwts.type = cfg->tstype;
-	hwts.ts.ns = 0;
+/* 	rx_msg = (union Message *)buf; */
 
-	rx_msg = (union Message *)buf;
+/* 	do { */
+/* 		cnt = sk_receive(p2_sock, rx_msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT); */
+/* 		/\* TODO: Handle receiving other packet types here */
+/* 		 * (e.g. pdelays). We only want to consider Syncs */
+/* 		 * Handle onestep syncs. */
+/* 		 *\/ */
+/* 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR)) */
+/* 			continue; */
+/* 		if (hwts.ts.ns > 0) */
+/* 			hwts.ts.ns -= cfg->ingressLatency; */
+/* 		record_add_rx_msg(pr, rx_msg, &hwts.ts.ns); */
+/* 		return 0; */
+/* 	} while (is_running()); */
 
-	do {
-		cnt = sk_receive(p2_sock, rx_msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
-		/* TODO: Handle receiving other packet types here
-		 * (e.g. pdelays). We only want to consider Syncs
-		 * Handle onestep syncs.
-		 */
-		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
-			continue;
-		record_add_rx_msg(pr, rx_msg, &hwts.ts.ns);
-		/* seqid = be16toh(rx_msg->hdr.sequenceId); */
-		/* rx_ts = hwts.ts.ns; */
-		/* correction = be64toh(rx_msg->hdr.correction) >> 16; */
-		return 0;
-	} while (tc_running);
+/* 	return 1; */
+/* } */
 
-	return 1;
-}
-
-static void send_pkt(struct pkt_cfg *cfg, int sock, PortRecord *pr)
+static void send_pkt(Port *port)
 {
 	struct hw_timestamp hwts;
 	union Message msg;
@@ -121,84 +113,108 @@ static void send_pkt(struct pkt_cfg *cfg, int sock, PortRecord *pr)
 	int type;
 	int i;
 
-	hwts.type = cfg->tstype;
+	hwts.type = port->cfg.tstype;
 	hwts.ts.ns = 0;
 
-	for (i = 0; i < cfg->sequence_length; i++) {
-		type = cfg->sequence_types[i];
-		msg = build_msg(cfg, type);
-		send_msg(cfg, sock, &msg, &tx_ts);
-		record_add_tx_msg(pr, &msg, &tx_ts);
-		/* build_and_send(cfg, sock, type, &hwts, tx_ts); */
-		cfg->seq++;
+	/* TODO: Maybe remove sequence handling for TC ??? */
+	for (i = 0; i < port->cfg.sequence_length; i++) {
+		type = port->cfg.sequence_types[i];
+		msg = build_msg(&port->cfg, type);
+		send_msg(&port->cfg, port->e_sock, &msg, &tx_ts);
+		if (tx_ts > 0)
+			tx_ts += port->cfg.egressLatency;
+		if (port->do_record)
+			record_add_tx_msg(&port->record, &msg, &tx_ts);
+		port->cfg.seq++;
+		usleep(1000); /* Sleep 1 ms between packets in a sequence */
 		/* Default: 100 ms */
-		usleep(cfg->interval * 1000);
+		/* usleep(cfg->interval * 1000); */
 	}
 }
 
-static void run(struct pkt_cfg *cfg, char *p1, char *p2, int p1_sock, int p2_sock)
+int tc_event(Port *port, int fd_index)
 {
-	int64_t rx_ts, tx_ts, correction, total_err;
-	struct hw_timestamp hwts;
-	struct timeval timeout;
-	PortRecord pr_tx;
-	PortRecord pr_rx;
-	uint16_t seqid;
-	Stats s;
-	int err;
-	int i;
+	struct hw_timestamp hwts = { 0 };
+	unsigned char dummybuf[8];
+	union Message msg;
+	int64_t ns;
+	int err = 0;
 
-	record_init(&pr_tx, p1, 100);
-	record_init(&pr_rx, p2, 100);
-	err = stats_init(&s, cfg->count);
-	if (err)
-		return;
+	hwts.type = port->cfg.tstype;
 
-	timeout.tv_sec = 0;
-	timeout.tv_usec = 10000;
+	if (fd_index < 0) {
+		ERR("Invalid FD index %d\n", fd_index);
+		return -EINVAL;
+	}
 
-	/* XXX: When swapping the ports, does this affect the TX timestamp???
-	 * Maybe if longer tx_timestamp_timeout is required.
-	 */
-	if (setsockopt(p2_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0)
-		ERR("setsockopt failed: %m\n");
-
-	while (cfg->count || cfg->nonstop_flag) {
-		rx_ts = 0;
-		tx_ts = 0;
-		correction = 0;
-
-		send_pkt(cfg, p1_sock, &pr_tx);
-		err = receive(cfg, p2_sock, &pr_rx);
-		if (err || !tc_running) {
-			printf("Stopping!\n");
-			break;
-		}
-
-		/* With a proper TC, only the cable delay should be left uncompensated for */
-		/* Total delay accrued (RX - TX - RESIDENCE - SELF.INGR_LAT - SELF.EGR_LAT) */
-		/* tx_ts += cfg->egressLatency; */
-		/* rx_ts -= cfg->ingressLatency; */
-		/* total_err = rx_ts - tx_ts - correction; */
-		/* DEBUG("%s -> %s. TX: %" PRId64 ". RX: %" PRId64 ". Corr: %" PRId64 */
-		/*       ". Result: %" PRId64 "\n", */
-		/*       p1, p2, tx_ts, rx_ts, correction, total_err); */
+	switch (fd_index) {
+	case FD_EVENT:
+		err = sk_receive(port->e_sock, &msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
+		if (err < 0)
+			goto out;
+		ns = hwts.ts.ns - port->cfg.ingressLatency;
+		if (port->do_record)
+			record_add_rx_msg(&port->record, &msg, &ns);
+		break;
+	case FD_GENERAL:
+		err = sk_receive(port->g_sock, &msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
+		if (err < 0)
+			goto out;
+		if (port->do_record)
+			record_add_rx_msg(&port->record, &msg, NULL);
+		break;
+	case FD_SYNC_TX_TIMER:
+		read(port->pollfd[fd_index].fd, dummybuf, 8);
+		send_pkt(port);
+		if (!port->cfg.nonstop_flag)
+			port->cfg.count--;
 		if (!debugen) {
 			printf(".");
 			fflush(stdout);
 		}
-		if (cfg->count > 0)
-			cfg->count--;
+		if (port->cfg.count == 0 && !port->cfg.nonstop_flag) {
+			err = -EINTR;
+			port_clear_timer(port, FD_SYNC_TX_TIMER);
+		}
+		break;
+	default:
+		read(port->pollfd[fd_index].fd, dummybuf, 8);
+		ERR("Unhandled event on FD index %d\n", fd_index);
+		break;
 	}
 
-	if (!debugen && tc_running)
+out:
+	return err;
+}
+
+static void run(Port *p1, Port *p2)
+{
+	int expected_count = p1->cfg.count;
+	Stats s;
+	int err;
+
+	err = stats_init(&s, p1->cfg.count);
+	if (err)
+		return;
+
+	port_set_timer(p1, FD_SYNC_TX_TIMER, p1->cfg.interval);
+
+	while (is_running() && (p1->cfg.count > 0 || p1->cfg.nonstop_flag)) {
+		port_poll(p1);
+		port_poll(p2);
+	}
+
+	/* RX side gets a couple extra polls to pick up any remaining messages */
+	for (int i = 0; i < 100; i++) {
+		port_poll(p2);
+	}
+
+	if (!debugen && is_running())
 		printf("\n");
-	record_map_messages(&s, &pr_tx, &pr_rx);
-	stats_show(&s, p1, p2, cfg->count);
+	record_map_messages(&s, &p1->record, &p2->record);
+	stats_show(&s, p1->cfg.interface, p2->cfg.interface, p1->cfg.count);
 	stats_output_measurements(&s, "measurements.dat");
 	stats_free(&s);
-	record_free(&pr_tx);
-	record_free(&pr_rx);
 }
 
 static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2,
@@ -334,46 +350,27 @@ int run_tc_mode(int argc, char **argv)
 	if (!cfg.count)
 		cfg.nonstop_flag = 1;
 
-	p1_sock = open_socket(p1, 1, ptp_dst_mac, p2p_dst_mac, 0, 1);
-	if (p1_sock < 0) {
-		ERR_NO("failed to open socket");
-		return p1_sock;
-	}
-
-	err = sk_timestamping_init(p1_sock, p1, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK, cfg.tstype,
-				   TRANS_IEEE_802_3, -1, 0, DM_E2E, 0);
-	if (err < 0) {
-		ERR_NO("failed to enable timestamping");
-		return err;
-	}
-
-	p2_sock = open_socket(p2, 1, ptp_dst_mac, p2p_dst_mac, 0, 1);
-	if (p2_sock < 0) {
-		ERR_NO("failed to open socket");
-		return p2_sock;
-	}
-
-	err = sk_timestamping_init(p2_sock, p2, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK, cfg.tstype,
-				   TRANS_IEEE_802_3, -1, 0, DM_E2E, 0);
-	if (err < 0) {
-		ERR_NO("failed to enable timestamping");
-		return err;
-	}
+	Port port1;
+	Port port2;
+	port_init(&port1, cfg, p1, tc_event, true, true, true);
+	port_init(&port2, cfg, p2, tc_event, true, true, true);
 
 	count = cfg.count;
-	run(&cfg, p1, p2, p1_sock, p2_sock);
+	run(&port1, &port2);
 	if (!bidirectional)
 		goto out;
-	if (!tc_running)
+	if (!is_running())
 		goto out;
 
 	/* TODO: Should we recreate the sockets when swapping direction? */
 	printf("Swapping direction...\n");
 	cfg.count = count;
-	run(&cfg, p2, p1, p2_sock, p1_sock);
+	port_clear_record(&port1);
+	port_clear_record(&port2);
+	run(&port2, &port1);
 
 out:
-	sk_timestamping_destroy(p1_sock, p1, cfg.tstype);
-	sk_timestamping_destroy(p2_sock, p2, cfg.tstype);
+	port_free(&port1);
+	port_free(&port2);
 	return 0;
 }

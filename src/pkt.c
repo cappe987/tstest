@@ -5,17 +5,25 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <errno.h>
+#include <sys/poll.h>
+#include <sys/timerfd.h>
+#include <sys/types.h>
 #include <unistd.h>
-#include <signal.h>
 
 #include "liblink.h"
 #include "pkt.h"
+#include "stats.h"
 
 /* TODO:
  * - Fix tstamp-all
  */
 
-int pkt_running = 1;
+static volatile int running = 1;
+
+int is_running()
+{
+	return running;
+}
 
 #ifndef SO_TIMESTAMPING
 #define SO_TIMESTAMPING 37
@@ -61,9 +69,9 @@ Options:\n\
         \n");
 }
 
-static void sig_handler(int sig)
+void sig_handler(int sig)
 {
-	pkt_running = 0;
+	running = 0;
 }
 
 static void set_two_step_flag(struct pkt_cfg *cfg, struct ptp_header *hdr, int type)
@@ -207,6 +215,168 @@ static int send_auto_fup(struct pkt_cfg *cfg, int sock, int type, struct hw_time
 	return send_print(cfg, sock, ptp_type, hwts);
 }
 
+int sk_get_error(int fd)
+{
+	socklen_t len;
+	int error;
+
+	len = sizeof(error);
+	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+		ERR("getsockopt SO_ERROR failed: %m");
+		return -1;
+	}
+
+	return error;
+}
+
+int port_clear_timer(Port *port, int fd_index)
+{
+	struct itimerspec tmo = { { 0, 0 }, { 0, 0 } };
+	return timerfd_settime(port->pollfd[fd_index].fd, 0, &tmo, NULL);
+}
+
+int port_set_timer(Port *port, int fd_index, int interval_ms)
+{
+	struct itimerspec tmo = { { 0, 0 }, { 0, 0 } };
+	int seconds = 0;
+
+	seconds = interval_ms / 1000;
+	interval_ms = interval_ms % 1000;
+
+	tmo.it_value.tv_sec = 0;
+	tmo.it_value.tv_nsec = 1000000 * 100;
+	tmo.it_interval.tv_sec = seconds;
+	tmo.it_interval.tv_nsec = 1000000 * interval_ms;
+	return timerfd_settime(port->pollfd[fd_index].fd, 0, &tmo, NULL);
+}
+
+int port_poll(Port *port)
+{
+	int res;
+	int cnt;
+
+	struct pollfd *cur;
+	cnt = poll(port->pollfd, N_POLLFD, 1);
+	cur = port->pollfd;
+	for (int i = 0; i < N_POLLFD; i++) {
+		if (cur[i].revents & (POLLIN | POLLPRI | POLLERR)) {
+			if (cur[i].revents & POLLERR) {
+				int error = sk_get_error(cur[i].fd);
+				ERR("%s: error on fda[%d]: %s", port->cfg.interface, i,
+				    strerror(error));
+				continue;
+			}
+			res = port->ev_handler(port, i);
+		}
+	}
+	return 0;
+}
+
+static int port_open_sockets(Port *port, bool open_evsock, bool open_gensock)
+{
+	int e_sock = -1, g_sock = -1, err;
+
+	if (open_evsock) {
+		e_sock = open_socket(port->cfg.interface, 1, ptp_dst_mac, p2p_dst_mac, 0, 1);
+		if (e_sock < 0)
+			return e_sock;
+		err = sk_timestamping_init(e_sock, port->cfg.interface,
+					   HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK, port->cfg.tstype,
+					   TRANS_IEEE_802_3, -1, 0, DM_P2P, 0);
+		if (err < 0)
+			return -err;
+	}
+
+	if (open_gensock) {
+		g_sock = open_socket(port->cfg.interface, 0, ptp_dst_mac, p2p_dst_mac, 0, 1);
+		if (g_sock < 0)
+			return g_sock;
+	}
+
+	port->e_sock = e_sock;
+	port->g_sock = g_sock;
+	return 0;
+}
+
+static void port_close_sockets(Port *port)
+{
+	sk_timestamping_destroy(port->e_sock, port->cfg.interface, port->cfg.tstype);
+	close(port->e_sock);
+	close(port->g_sock);
+	port->e_sock = -1;
+	port->g_sock = -1;
+}
+
+static void fd_init(struct pollfd *pollfd, int fd_index, int fd)
+{
+	pollfd[fd_index].fd = fd;
+	pollfd[fd_index].events = POLLIN | POLLPRI;
+}
+
+int port_init(Port *port, struct pkt_cfg cfg, char *portname, event_t ev_handler, bool do_record,
+	      bool open_evsock, bool open_gensock)
+{
+	int err;
+	int fd;
+
+	memset(port, 0, sizeof(Port));
+
+	cfg.interface = portname;
+	port->cfg = cfg;
+	port->ev_handler = ev_handler;
+	err = port_open_sockets(port, open_evsock, open_gensock);
+	if (err)
+		return err;
+	if (do_record) {
+		port->do_record = true;
+		err = record_init(&port->record, cfg.interface, 0);
+		if (err)
+			goto out_close_sockets;
+	}
+
+	fd_init(port->pollfd, FD_EVENT, port->e_sock);
+	fd_init(port->pollfd, FD_GENERAL, port->g_sock);
+
+	fd = timerfd_create(CLOCK_MONOTONIC, 0);
+	if (fd < 0) {
+		ERR("Failed to create SYNC TX TIMER\n");
+		goto out_free_record;
+	}
+	for (int fd_index = FD_DELAY_TIMER; fd_index < N_POLLFD; fd_index++) {
+		fd = timerfd_create(CLOCK_MONOTONIC, 0);
+		if (fd < 0) {
+			ERR("timerfd_create: %s", strerror(errno));
+			goto out_free_record;
+		}
+		fd_init(port->pollfd, fd_index, fd);
+	}
+
+	return 0;
+
+out_free_record:
+	record_free(&port->record);
+out_close_sockets:
+	port_close_sockets(port);
+	return err;
+}
+
+int port_clear_record(Port *port)
+{
+	if (!port->do_record)
+		return 0;
+	record_free(&port->record);
+	return record_init(&port->record, port->cfg.interface, 0);
+}
+
+int port_free(Port *port)
+{
+	int err;
+
+	port_close_sockets(port);
+	record_free(&port->record);
+	return 0;
+}
+
 static void tx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 {
 	int type;
@@ -243,7 +413,7 @@ static void rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0)
 		ERR("setsockopt failed: %m\n");
 
-	while (pkt_running) {
+	while (running) {
 		cnt = sk_receive(sock, rx_msg, 1600, NULL, hwts, 0, DEFAULT_TX_TIMEOUT);
 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
 			continue;
