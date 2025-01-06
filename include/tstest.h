@@ -4,6 +4,7 @@
 #ifndef __TSTEST_H__
 #define __TSTEST_H__
 
+#include "timestamping.h"
 #include <string.h>
 #include <arpa/inet.h>
 #include <linux/if_ether.h>
@@ -277,6 +278,25 @@ static void ptp_set_domain(struct ptp_header *hdr, UInteger8 domain)
 static void ptp_set_flags(struct ptp_header *hdr, UInteger16 flags)
 {
 	hdr->flagField[0] = flags;
+}
+
+static void ptp_set_originTimestamp(union Message *msg, Integer64 ns)
+{
+	Integer64 sec;
+	msg->sync.originTimestamp.nanoseconds = htonl(ns % NS_PER_SEC);
+	sec = ns / NS_PER_SEC;
+	msg->sync.originTimestamp.seconds_lsb = htonl(sec);
+	msg->sync.originTimestamp.seconds_msb = htons(sec >> 32);
+}
+
+static Integer64 ptp_get_originTimestamp(union Message *msg)
+{
+	Integer64 ns, sec;
+	sec = ntohl(msg->sync.originTimestamp.seconds_lsb);
+	sec += ((Integer64)ntohs(msg->sync.originTimestamp.seconds_msb)) << 32;
+	ns = ntohl(msg->sync.originTimestamp.nanoseconds);
+	ns += sec * NS_PER_SEC;
+	return ns;
 }
 
 #endif /* __TSTEST_H__ */

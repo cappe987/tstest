@@ -347,9 +347,12 @@ int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts)
 	/* TODO: How should we handle onestep timestamps for pdelay? */
 	if (new->ptp_type == SYNC) {
 		if (msg_is_onestep(msg)) {
-			new->tx_ts = msg_get_origin_timestamp(msg);
+			new->tx_ts = ptp_get_originTimestamp(msg);
 			new->tx_saved = true;
 		}
+	} else if (new->ptp_type == FOLLOW_UP) {
+		new->tx_ts = ptp_get_originTimestamp(msg);
+		new->tx_saved = true;
 	}
 	new->src_is_self = false;
 	if (memcmp(msg->hdr.sourcePortIdentity.clockIdentity.id, ptp_default_clockid(), 8) == 0)

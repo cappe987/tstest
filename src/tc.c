@@ -125,6 +125,14 @@ static void send_pkt(Port *port)
 			tx_ts += port->cfg.egressLatency;
 		if (port->do_record)
 			record_add_tx_msg(&port->record, &msg, &tx_ts);
+		if (type == SYNC && port->cfg.tstype != TS_ONESTEP &&
+		    port->cfg.tstype != TS_P2P1STEP) {
+			msg = build_msg(&port->cfg, FOLLOW_UP);
+			ptp_set_originTimestamp(&msg, tx_ts);
+			send_msg(&port->cfg, port->g_sock, &msg, &tx_ts);
+			if (port->do_record)
+				record_add_tx_msg(&port->record, &msg, NULL);
+		}
 		port->cfg.seq++;
 		usleep(1000); /* Sleep 1 ms between packets in a sequence */
 		/* Default: 100 ms */
@@ -352,7 +360,8 @@ int run_tc_mode(int argc, char **argv)
 
 	Port port1;
 	Port port2;
-	port_init(&port1, cfg, p1, tc_event, true, true, true);
+	/* port_init(&port1, cfg, p1, tc_event, true, true, true); */
+	port_init(&port1, cfg, p1, tc_event, false, true, true);
 	port_init(&port2, cfg, p2, tc_event, true, true, true);
 
 	count = cfg.count;
