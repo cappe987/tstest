@@ -73,12 +73,6 @@ int stats_add(Stats *s, struct tsinfo tsinfo)
 		s->tsinfo = tmp;
 	}
 
-	/* s->tsinfo[s->count].seqid = seqid; */
-	/* s->tsinfo[s->count].tx_ts = tx_ts; */
-	/* s->tsinfo[s->count].rx_ts = rx_ts; */
-	/* s->tsinfo[s->count].correction = correction; */
-	/* s->tsinfo[s->count].tx_saved = true; */
-	/* s->tsinfo[s->count].rx_saved = true; */
 	s->tsinfo[s->count] = tsinfo;
 	s->count++;
 	return 0;
@@ -295,15 +289,12 @@ int record_add_tx_msg(PortRecord *pr, union Message *msg, int64_t *tx_ts)
 	new = &pr->msgs[pr->count];
 	memcpy(&new->msg, msg, sizeof(union Message));
 	new->ptp_type = msg_get_type(msg);
-	new->tx_saved = false;
 	if (tx_ts) {
 		new->tx_ts = *tx_ts;
-		new->tx_saved = true;
 	}
 	new->seqid = be16toh(msg->hdr.sequenceId);
 	/* printf("Seqid %u\n", new->seqid); */
 	new->rx_ts = 0;
-	new->rx_saved = false;
 	new->src_is_self = true;
 	pr->count++;
 
@@ -331,28 +322,20 @@ int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts)
 		/* 	} */
 	}
 
-	/* DEBUG("Add RX %s: rx_ts %" PRId64"\n", ptp_type2str(msg_get_type(msg)), *rx_ts); */
 	new = &pr->msgs[pr->count];
 	memcpy(&new->msg, msg, sizeof(union Message));
 	new->ptp_type = msg_get_type(msg);
-	new->rx_saved = false;
+	new->rx_ts = 0;
 	if (rx_ts) {
 		new->rx_ts = *rx_ts;
-		new->rx_saved = true;
 	}
 	new->seqid = be16toh(msg->hdr.sequenceId);
 	new->tx_ts = 0;
-	new->tx_saved = false;
-	/* Untested */
 	/* TODO: How should we handle onestep timestamps for pdelay? */
-	if (new->ptp_type == SYNC) {
-		if (msg_is_onestep(msg)) {
-			new->tx_ts = ptp_get_originTimestamp(msg);
-			new->tx_saved = true;
-		}
+	if (new->ptp_type == SYNC && msg_is_onestep(msg)) {
+		new->tx_ts = ptp_get_originTimestamp(msg);
 	} else if (new->ptp_type == FOLLOW_UP) {
 		new->tx_ts = ptp_get_originTimestamp(msg);
-		new->tx_saved = true;
 	}
 	new->src_is_self = false;
 	if (memcmp(msg->hdr.sourcePortIdentity.clockIdentity.id, ptp_default_clockid(), 8) == 0)
@@ -392,24 +375,22 @@ static uint8_t get_primary_type(MessageRecord *m)
 
 static int record_map_msg_to_tsinfo(Stats *s, MessageRecord *m, struct tsinfo *tsinfo)
 {
-	if (m->tx_saved) {
-		if (tsinfo->tx_saved && m->tx_ts != tsinfo->tx_ts) {
+	if (m->tx_ts) {
+		if (tsinfo->tx_ts && m->tx_ts != tsinfo->tx_ts) {
 			ERR("Record and tsinfo has different tx_ts. %" PRId64 " and %" PRId64 "\n",
 			    m->tx_ts, tsinfo->tx_ts);
 		}
 		tsinfo->tx_ts = m->tx_ts;
-		tsinfo->tx_saved = true;
 	}
 
-	if (m->rx_saved) {
-		if (tsinfo->rx_saved && m->rx_ts != tsinfo->rx_ts) {
+	if (m->rx_ts) {
+		if (tsinfo->rx_ts && m->rx_ts != tsinfo->rx_ts) {
 			ERR("Record and tsinfo has different rx_ts. %" PRId64 " and %" PRId64 "\n",
 			    m->rx_ts, tsinfo->rx_ts);
 		}
 		tsinfo->rx_ts = m->rx_ts;
 		/* Add correction. Adjustments can be made in any packet */
 		tsinfo->correction += be64toh(m->msg.hdr.correction) >> 16;
-		tsinfo->rx_saved = true;
 	}
 
 	return 0;
@@ -422,14 +403,12 @@ static struct tsinfo record_msg_to_tsinfo(MessageRecord *m)
 	tsinfo.ptp_type = get_primary_type(m);
 	tsinfo.seqid = m->seqid;
 	tsinfo.src_is_self = m->src_is_self;
-	if (m->tx_saved) {
+	if (m->tx_ts) {
 		tsinfo.tx_ts = m->tx_ts;
-		tsinfo.tx_saved = true;
 	}
-	if (m->rx_saved) {
+	if (m->rx_ts) {
 		tsinfo.rx_ts = m->rx_ts;
 		tsinfo.correction = be64toh(m->msg.hdr.correction) >> 16;
-		tsinfo.rx_saved = true;
 	}
 	return tsinfo;
 }

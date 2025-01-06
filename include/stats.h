@@ -45,10 +45,8 @@ typedef struct {
 	uint16_t seqid;
 	int64_t tx_ts;
 	int64_t rx_ts;
-	/* onestep tx_ts and correction can be extracted later */
+	/* TODO: Extract correctionField */
 	/* int64_t correction; */
-	bool tx_saved;
-	bool rx_saved;
 	union Message msg;
 } MessageRecord;
 
