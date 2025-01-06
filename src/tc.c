@@ -111,33 +111,32 @@ static void send_pkt(Port *port)
 	;
 	int64_t tx_ts;
 	int type;
-	int i;
+	int i = 0;
 
 	hwts.type = port->cfg.tstype;
 	hwts.ts.ns = 0;
 
 	/* TODO: Maybe remove sequence handling for TC ??? */
-	for (i = 0; i < port->cfg.sequence_length; i++) {
-		type = port->cfg.sequence_types[i];
-		msg = build_msg(&port->cfg, type);
-		send_msg(&port->cfg, port->e_sock, &msg, &tx_ts);
-		if (tx_ts > 0)
-			tx_ts += port->cfg.egressLatency;
+	/* for (i = 0; i < port->cfg.sequence_length; i++) { */
+	type = port->cfg.sequence_types[i];
+	msg = build_msg(&port->cfg, type);
+	send_msg(&port->cfg, port->e_sock, &msg, &tx_ts);
+	if (tx_ts > 0)
+		tx_ts += port->cfg.egressLatency;
+	if (port->do_record)
+		record_add_tx_msg(&port->record, &msg, &tx_ts);
+	if (type == SYNC && port->cfg.tstype != TS_ONESTEP && port->cfg.tstype != TS_P2P1STEP) {
+		msg = build_msg(&port->cfg, FOLLOW_UP);
+		ptp_set_originTimestamp(&msg, tx_ts);
+		send_msg(&port->cfg, port->g_sock, &msg, &tx_ts);
 		if (port->do_record)
-			record_add_tx_msg(&port->record, &msg, &tx_ts);
-		if (type == SYNC && port->cfg.tstype != TS_ONESTEP &&
-		    port->cfg.tstype != TS_P2P1STEP) {
-			msg = build_msg(&port->cfg, FOLLOW_UP);
-			ptp_set_originTimestamp(&msg, tx_ts);
-			send_msg(&port->cfg, port->g_sock, &msg, &tx_ts);
-			if (port->do_record)
-				record_add_tx_msg(&port->record, &msg, NULL);
-		}
-		port->cfg.seq++;
-		usleep(1000); /* Sleep 1 ms between packets in a sequence */
-		/* Default: 100 ms */
-		/* usleep(cfg->interval * 1000); */
+			record_add_tx_msg(&port->record, &msg, NULL);
 	}
+	port->cfg.seq++;
+	/* usleep(1000); /\* Sleep 1 ms between packets in a sequence *\/ */
+	/* Default: 100 ms */
+	/* usleep(cfg->interval * 1000); */
+	/* } */
 }
 
 int tc_event(Port *port, int fd_index)
