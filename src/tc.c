@@ -11,6 +11,7 @@
 #include "liblink.h"
 #include "pkt.h"
 #include "stats.h"
+#include "tstest.h"
 
 /* Measure the one-way inaccuracy through a TC. Runs on two ports that
  * are either synchronized or use the same PHC. The inaccuracies will
@@ -104,28 +105,23 @@ Options:\n\
 /* 	return 1; */
 /* } */
 
-static void send_pkt(Port *port)
+static void send_pkt_with_ts(Port *port, int ptp_type, int64_t ts, int64_t correction)
 {
 	struct hw_timestamp hwts;
 	union Message msg;
-	;
 	int64_t tx_ts;
-	int type;
 	int i = 0;
 
 	hwts.type = port->cfg.tstype;
 	hwts.ts.ns = 0;
 
-	/* TODO: Maybe remove sequence handling for TC ??? */
-	/* for (i = 0; i < port->cfg.sequence_length; i++) { */
-	type = port->cfg.sequence_types[i];
-	msg = build_msg(&port->cfg, type);
-	send_msg(&port->cfg, port->e_sock, &msg, &tx_ts);
+	msg = build_msg_with_ts(&port->cfg, ptp_type, 0, 0);
+	send_msg(&port->cfg, port_get_socket(port, ptp_type), &msg, &tx_ts);
 	if (tx_ts > 0)
 		tx_ts += port->cfg.egressLatency;
 	if (port->do_record)
 		record_add_tx_msg(&port->record, &msg, &tx_ts);
-	if (type == SYNC && port->cfg.tstype != TS_ONESTEP && port->cfg.tstype != TS_P2P1STEP) {
+	if (ptp_type == SYNC && port->cfg.tstype != TS_ONESTEP && port->cfg.tstype != TS_P2P1STEP) {
 		msg = build_msg(&port->cfg, FOLLOW_UP);
 		ptp_set_originTimestamp(&msg, tx_ts);
 		send_msg(&port->cfg, port->g_sock, &msg, &tx_ts);
@@ -133,10 +129,30 @@ static void send_pkt(Port *port)
 			record_add_tx_msg(&port->record, &msg, NULL);
 	}
 	port->cfg.seq++;
-	/* usleep(1000); /\* Sleep 1 ms between packets in a sequence *\/ */
-	/* Default: 100 ms */
-	/* usleep(cfg->interval * 1000); */
-	/* } */
+}
+
+static void send_pkt(Port *port, int ptp_type)
+{
+	send_pkt_with_ts(port, ptp_type, 0, 0);
+}
+
+static int delay_req_reply(Port *port, union Message *req, int64_t ns)
+{
+	int64_t correction = ptp_get_correctionField(req);
+	struct hw_timestamp hwts;
+	union Message resp;
+	int64_t tx_ts;
+	int i = 0;
+
+	hwts.type = port->cfg.tstype;
+	hwts.ts.ns = 0;
+
+	resp = build_msg_with_ts(&port->cfg, DELAY_RESP, ns, correction);
+	ptp_set_seqId(&resp.hdr, ptp_get_seqId(&req->hdr));
+	send_msg(&port->cfg, port->g_sock, &resp, &tx_ts);
+	if (port->do_record)
+		record_add_tx_msg(&port->record, &resp, NULL);
+	return 0;
 }
 
 int tc_event(Port *port, int fd_index)
@@ -162,6 +178,13 @@ int tc_event(Port *port, int fd_index)
 		ns = hwts.ts.ns - port->cfg.ingressLatency;
 		if (port->do_record)
 			record_add_rx_msg(&port->record, &msg, &ns);
+		switch (msg_get_type(&msg)) {
+		case DELAY_REQ:
+			delay_req_reply(port, &msg, ns);
+			break;
+		default:
+			break;
+		}
 		break;
 	case FD_GENERAL:
 		err = sk_receive(port->g_sock, &msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT);
@@ -172,16 +195,32 @@ int tc_event(Port *port, int fd_index)
 		break;
 	case FD_SYNC_TX_TIMER:
 		read(port->pollfd[fd_index].fd, dummybuf, 8);
-		send_pkt(port);
-		if (!port->cfg.nonstop_flag)
-			port->cfg.count--;
-		if (!debugen) {
-			printf(".");
-			fflush(stdout);
-		}
-		if (port->cfg.count == 0 && !port->cfg.nonstop_flag) {
+		send_pkt(port, SYNC);
+		/* if (!port->cfg.nonstop_flag) */
+		/* port->cfg.count--; */
+		/* if (!debugen) { */
+		/* 	printf("."); */
+		/* 	fflush(stdout); */
+		/* } */
+		port->sync_count--;
+		if (port->sync_count == 0 && !port->cfg.nonstop_flag) {
 			err = -EINTR;
 			port_clear_timer(port, FD_SYNC_TX_TIMER);
+		}
+		break;
+	case FD_DELAY_TIMER:
+		read(port->pollfd[fd_index].fd, dummybuf, 8);
+		send_pkt(port, DELAY_REQ);
+		/* if (!port->cfg.nonstop_flag) */
+		/* port->cfg.count--; */
+		/* if (!debugen) { */
+		/* 	printf("."); */
+		/* 	fflush(stdout); */
+		/* } */
+		port->delay_req_count--;
+		if (port->delay_req_count == 0 && !port->cfg.nonstop_flag) {
+			err = -EINTR;
+			port_clear_timer(port, FD_DELAY_TIMER);
 		}
 		break;
 	default:
@@ -196,30 +235,35 @@ out:
 
 static void run(Port *p1, Port *p2)
 {
-	int expected_count = p1->cfg.count;
+	/* int expected_count = p1->sync_count + p2->delay_req_count; */
 	Stats s;
 	int err;
 
-	err = stats_init(&s, p1->cfg.count);
+	p1->sync_count = p1->cfg.count;
+	p2->delay_req_count = p2->cfg.count;
+
+	err = stats_init(&s, p1->sync_count + p2->delay_req_count);
 	if (err)
 		return;
 
 	port_set_timer(p1, FD_SYNC_TX_TIMER, p1->cfg.interval);
+	port_set_timer(p2, FD_DELAY_TIMER, p2->cfg.interval);
 
-	while (is_running() && (p1->cfg.count > 0 || p1->cfg.nonstop_flag)) {
+	while (is_running() && p1->sync_count > 0 && p2->delay_req_count > 0) {
 		port_poll(p1);
 		port_poll(p2);
 	}
 
-	/* RX side gets a couple extra polls to pick up any remaining messages */
+	/* Both sides get a couple extra polls to pick up any remaining messages */
 	for (int i = 0; i < 100; i++) {
+		port_poll(p1);
 		port_poll(p2);
 	}
 
 	if (!debugen && is_running())
 		printf("\n");
 	record_map_messages(&s, &p1->record, &p2->record);
-	stats_show(&s, p1->cfg.interface, p2->cfg.interface, p1->cfg.count);
+	stats_show(&s, p1->cfg.interface, p2->cfg.interface, p1->sync_count + p2->delay_req_count);
 	stats_output_measurements(&s, "measurements.dat");
 	stats_free(&s);
 }

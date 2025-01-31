@@ -19,6 +19,16 @@ functionality at a time. Great for debugging purposes.
   (send, receive, verify values). Should be run with a looped cable, else it
   would require two instances (which might be an option too).
 
+## TODO: TC Mode
+- Better handling for finding the initial max/min values. Use INT MIN/MAX?
+- Change to use capture time and interval, rather than packet count
+- P2P measurement
+- build_msg() should take portIdentity
+- Export Delay and Twoway error. Alternatively, only export packet
+  data and calculate externally (note: internal calculation is also
+  desired since we want to give quick output).
+- BC mode
+- Refactor stats.c to better map messages???
 
 ## Credit
 A lot of the code is directly taken from the Linuxptp project and the Linux

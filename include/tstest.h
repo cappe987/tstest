@@ -264,7 +264,7 @@ static void ptp_set_seqId(struct ptp_header *hdr, UInteger16 seq)
 	hdr->sequenceId = htons(seq);
 }
 
-static int ptp_get_seqId(struct ptp_header *hdr)
+static UInteger16 ptp_get_seqId(struct ptp_header *hdr)
 {
 	return ntohs(hdr->sequenceId);
 }
@@ -297,6 +297,16 @@ static Integer64 ptp_get_originTimestamp(union Message *msg)
 	ns = ntohl(msg->sync.originTimestamp.nanoseconds);
 	ns += sec * NS_PER_SEC;
 	return ns;
+}
+
+static void ptp_set_correctionField(union Message *msg, Integer64 correction_ns)
+{
+	msg->hdr.correction = htobe64(correction_ns << 16);
+}
+
+static Integer64 ptp_get_correctionField(union Message *msg)
+{
+	return be64toh(msg->hdr.correction) >> 16;
 }
 
 #endif /* __TSTEST_H__ */

@@ -72,6 +72,8 @@ struct port {
 	event_t ev_handler;
 	bool do_record;
 	PortRecord record;
+	int sync_count;
+	int delay_req_count;
 };
 
 int is_running();
@@ -80,9 +82,11 @@ void sig_handler(int sig);
 int msg_get_type(union Message *msg);
 int msg_is_onestep(union Message *msg);
 union Message build_msg(struct pkt_cfg *cfg, int type);
+union Message build_msg_with_ts(struct pkt_cfg *cfg, int type, int64_t ts, int64_t correction);
 int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns);
 int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts, int64_t *ns);
 
+int port_get_socket(Port *port, int ptp_type);
 int port_clear_timer(Port *port, int fd_index);
 int port_set_timer(Port *port, int fd_index, int interval_ms);
 int port_poll(Port *port);

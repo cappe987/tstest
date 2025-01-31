@@ -88,17 +88,92 @@ static int64_t tsinfo_get_latency(struct tsinfo tsinfo)
 	return tsinfo.rx_ts - tsinfo.tx_ts;
 }
 
-StatsResult stats_get_time_error(Stats *s)
+/* Syncs and Delays are mapped based on sequence ID. This isn't ideal
+ * if they are not sent at the same time. It would be possible to map
+ * the DelayReq TX to Sync RX time. Or just send the DelayReq when a
+ * Sync is received so they can be associated. But this isn't ideal
+ * for BC and Pdelay.
+ */
+
+static struct tsinfo *stats_get_tsinfo(Stats *s, int ptp_type, int seqid)
+{
+	for (int i = 0; i < s->count; i++)
+		if (s->tsinfo[i].ptp_type == ptp_type && s->tsinfo[i].seqid == seqid)
+			return &s->tsinfo[i];
+	return NULL;
+}
+
+static int stats_get_twoway_error(Stats *s, struct tsinfo *sync)
+{
+	int64_t timeerror, timeerror_delay;
+	struct tsinfo *delay;
+	timeerror = tsinfo_get_error(*sync);
+	delay = stats_get_tsinfo(s, DELAY_REQ, sync->seqid);
+	if (!delay) {
+		ERR("Missing Delay for Sync with SeqID %" PRId16, sync->seqid);
+		return 0;
+	}
+	timeerror_delay = tsinfo_get_error(*delay);
+	return (timeerror + timeerror_delay) / 2;
+}
+
+/* static StatsResult stats_get_twoway_time_error(Stats *s) */
+/* { */
+/* 	int64_t sum_err = 0; */
+/* 	int64_t timeerror, timerror_delay; */
+/* 	StatsResult r; */
+/* 	struct tsinfo *delay; */
+
+/* 	timeerror = tsinfo_get_error(s->tsinfo[0]); */
+/* 	r.max = timeerror; */
+/* 	r.min = timeerror; */
+/* 	for (int i = 0; i < s->count; i++) { */
+/* 		if (s->tsinfo[i].ptp_type != SYNC) */
+/* 			continue; */
+/* 		timeerror = stats_get_twoway_error(s, &s->tsinfo[i]); */
+/* 		if (timeerror > r.max) */
+/* 			r.max = timeerror; */
+/* 		if (timeerror < r.min) */
+/* 			r.min = timeerror; */
+/* 		sum_err += timeerror; */
+/* 	} */
+/* 	r.mean = sum_err / s->count; */
+/* 	return r; */
+/* } */
+
+static StatsResult stats_get_time_error(Stats *s, int ptp_type)
 {
 	int64_t sum_err = 0;
+	bool twoway = false;
 	int64_t timeerror;
 	StatsResult r;
+	struct tsinfo *first_sync = NULL;
 
-	timeerror = tsinfo_get_error(s->tsinfo[0]);
+	if (ptp_type == -1) {
+		ptp_type = SYNC;
+		twoway = true;
+	}
+
+	if (twoway) {
+		first_sync = stats_get_tsinfo(s, ptp_type, 0);
+		if (!first_sync) {
+			// TODO: Improve how this is handled. Don't base it
+			// on SeqId 0.
+			ERR("FAilED to find first Sync\n");
+		}
+		timeerror = stats_get_twoway_error(s, first_sync);
+	} else {
+		timeerror = tsinfo_get_error(s->tsinfo[0]);
+	}
 	r.max = timeerror;
 	r.min = timeerror;
 	for (int i = 0; i < s->count; i++) {
-		timeerror = tsinfo_get_error(s->tsinfo[i]);
+		if (s->tsinfo[i].ptp_type != ptp_type)
+			continue;
+		if (twoway)
+			timeerror = stats_get_twoway_error(s, &s->tsinfo[i]);
+		else
+			timeerror = tsinfo_get_error(s->tsinfo[i]);
 		if (timeerror > r.max)
 			r.max = timeerror;
 		if (timeerror < r.min)
@@ -109,7 +184,22 @@ StatsResult stats_get_time_error(Stats *s)
 	return r;
 }
 
-StatsResult stats_get_latency(Stats *s)
+static StatsResult stats_get_sync_time_error(Stats *s)
+{
+	return stats_get_time_error(s, SYNC);
+}
+
+static StatsResult stats_get_delay_time_error(Stats *s)
+{
+	return stats_get_time_error(s, DELAY_REQ);
+}
+
+static StatsResult stats_get_twoway_time_error(Stats *s)
+{
+	return stats_get_time_error(s, -1);
+}
+
+StatsResult stats_get_sync_latency(Stats *s)
 {
 	int64_t sum_lat = 0;
 	int64_t latency;
@@ -119,6 +209,8 @@ StatsResult stats_get_latency(Stats *s)
 	r.max = latency;
 	r.min = latency;
 	for (int i = 0; i < s->count; i++) {
+		if (s->tsinfo[i].ptp_type != SYNC)
+			continue;
 		latency = tsinfo_get_latency(s->tsinfo[i]);
 		if (latency > r.max)
 			r.max = latency;
@@ -137,6 +229,8 @@ static int64_t pdv_get_lucky_packet(Stats *s)
 
 	lucky_packet = s->tsinfo[0].rx_ts - s->tsinfo[0].tx_ts;
 	for (int i = 1; i < s->count; i++) {
+		if (s->tsinfo[i].ptp_type != SYNC)
+			continue;
 		tmp = s->tsinfo[i].rx_ts - s->tsinfo[i].tx_ts;
 		if (tmp < lucky_packet)
 			lucky_packet = tmp;
@@ -144,7 +238,7 @@ static int64_t pdv_get_lucky_packet(Stats *s)
 	return lucky_packet;
 }
 
-StatsResult stats_get_pdv(Stats *s)
+StatsResult stats_get_sync_pdv(Stats *s)
 {
 	int64_t lucky_packet, tmp, sum = 0;
 	StatsResult r = { 0 };
@@ -153,6 +247,8 @@ StatsResult stats_get_pdv(Stats *s)
 	r.max = 0;
 	r.min = 0;
 	for (int i = 0; i < s->count; i++) {
+		if (s->tsinfo[i].ptp_type != SYNC)
+			continue;
 		tmp = (s->tsinfo[i].rx_ts - s->tsinfo[i].tx_ts) - lucky_packet;
 		sum += tmp;
 		if (tmp > r.max)
@@ -176,22 +272,32 @@ void stats_show(Stats *s, char *p1, char *p2, int count_left)
 		printf("%d measurements\n", s->count);
 	printf("%s -> %s\n", p1, p2);
 
-	StatsResult time_error = stats_get_time_error(s);
-	StatsResult latency = stats_get_latency(s);
-	StatsResult pdv = stats_get_pdv(s);
+	StatsResult sync_time_error = stats_get_sync_time_error(s);
+	StatsResult delay_time_error = stats_get_delay_time_error(s);
+	StatsResult twoway_time_error = stats_get_twoway_time_error(s);
+	StatsResult sync_latency = stats_get_sync_latency(s);
+	StatsResult sync_pdv = stats_get_sync_pdv(s);
 
-	printf("--- TIME ERROR ---\n");
-	printf("Mean: %" PRId64 "\n", time_error.mean);
-	printf("Max : %" PRId64 "\n", time_error.max);
-	printf("Min : %" PRId64 "\n", time_error.min);
+	printf("--- SYNC TIME ERROR ---\n");
+	printf("Mean: %" PRId64 "\n", sync_time_error.mean);
+	printf("Max : %" PRId64 "\n", sync_time_error.max);
+	printf("Min : %" PRId64 "\n", sync_time_error.min);
+	printf("--- DELAY TIME ERROR ---\n");
+	printf("Mean: %" PRId64 "\n", delay_time_error.mean);
+	printf("Max : %" PRId64 "\n", delay_time_error.max);
+	printf("Min : %" PRId64 "\n", delay_time_error.min);
+	printf("--- 2-WAY TIME ERROR ---\n");
+	printf("Mean: %" PRId64 "\n", twoway_time_error.mean);
+	printf("Max : %" PRId64 "\n", twoway_time_error.max);
+	printf("Min : %" PRId64 "\n", twoway_time_error.min);
 	printf("--- LATENCY ---\n");
-	printf("Mean: %" PRId64 "\n", latency.mean);
-	printf("Max : %" PRId64 "\n", latency.max);
-	printf("Min : %" PRId64 "\n", latency.min);
+	printf("Mean: %" PRId64 "\n", sync_latency.mean);
+	printf("Max : %" PRId64 "\n", sync_latency.max);
+	printf("Min : %" PRId64 "\n", sync_latency.min);
 	printf("--- PDV ---\n");
-	printf("Mean: %" PRId64 "\n", pdv.mean);
-	printf("Max : %" PRId64 "\n", pdv.max);
-	printf("Min : %" PRId64 " (lucky packet)\n", pdv.min);
+	printf("Mean: %" PRId64 "\n", sync_pdv.mean);
+	printf("Max : %" PRId64 "\n", sync_pdv.max);
+	printf("Min : %" PRId64 " (lucky packet)\n", sync_pdv.min);
 }
 
 static int ts_sec(int64_t ts)
@@ -390,7 +496,11 @@ static int record_map_msg_to_tsinfo(Stats *s, MessageRecord *m, struct tsinfo *t
 		}
 		tsinfo->rx_ts = m->rx_ts;
 		/* Add correction. Adjustments can be made in any packet */
-		tsinfo->correction += be64toh(m->msg.hdr.correction) >> 16;
+		tsinfo->correction += ptp_get_correctionField(&m->msg);
+	}
+
+	if (tsinfo->ptp_type == DELAY_REQ && m->ptp_type == DELAY_RESP) {
+		tsinfo->rx_ts = ptp_get_originTimestamp(&m->msg);
 	}
 
 	return 0;
@@ -408,7 +518,7 @@ static struct tsinfo record_msg_to_tsinfo(MessageRecord *m)
 	}
 	if (m->rx_ts) {
 		tsinfo.rx_ts = m->rx_ts;
-		tsinfo.correction = be64toh(m->msg.hdr.correction) >> 16;
+		tsinfo.correction = ptp_get_correctionField(&m->msg);
 	}
 	return tsinfo;
 }

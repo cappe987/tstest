@@ -60,9 +60,11 @@ typedef struct {
 int stats_init(Stats *s, int size);
 void stats_free(Stats *s);
 int stats_add(Stats *s, struct tsinfo tsinfo);
-StatsResult stats_get_time_error(Stats *s);
-StatsResult stats_get_latency(Stats *s);
-StatsResult stats_get_pdv(Stats *s);
+static StatsResult stats_get_sync_time_error(Stats *s);
+static StatsResult stats_get_delay_time_error(Stats *s);
+static StatsResult stats_get_twoway_time_error(Stats *s);
+StatsResult stats_get_sync_latency(Stats *s);
+StatsResult stats_get_sync_pdv(Stats *s);
 void stats_show(Stats *s, char *p1, char *p2, int count_left);
 void stats_output_measurements(Stats *s, char *path);
 

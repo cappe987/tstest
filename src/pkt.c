@@ -140,6 +140,15 @@ union Message build_msg(struct pkt_cfg *cfg, int type)
 	return ptp_msg_create_type(hdr, type);
 }
 
+union Message build_msg_with_ts(struct pkt_cfg *cfg, int type, int64_t ts, int64_t correction)
+{
+	union Message msg;
+	msg = build_msg(cfg, type);
+	ptp_set_originTimestamp(&msg, ts);
+	ptp_set_correctionField(&msg, correction);
+	return msg;
+}
+
 int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns)
 {
 	int type = msg_get_type(msg);
@@ -218,6 +227,11 @@ int sk_get_error(int fd)
 	}
 
 	return error;
+}
+
+int port_get_socket(Port *port, int ptp_type)
+{
+	return ptp_type & 0x8 ? port->g_sock : port->e_sock;
 }
 
 int port_clear_timer(Port *port, int fd_index)
