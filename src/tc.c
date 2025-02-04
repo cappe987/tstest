@@ -66,7 +66,6 @@ Options:\n\
         -I <interval ms>. Time between packets. Default 200 ms\n\
         -D <domain>. PTP domain number\n\
         -c <frame counts>. Default: 10. If 0, send until interrupted\n\
-        -b Bidirectional. Run measurements in both directions\n\
         -d Enable debug output\n\
 	-v <2|2.1> PTP version of the packet\n\
         -h help\n\
@@ -268,8 +267,7 @@ static void run(Port *p1, Port *p2)
 	stats_free(&s);
 }
 
-static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2,
-			int *bidirectional)
+static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2)
 {
 	int type;
 	int c;
@@ -294,7 +292,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:b", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:", long_options, NULL)) != -1) {
 		switch (c) {
 		case 1:
 			cfg->transportSpecific = strtoul(optarg, NULL, 0);
@@ -351,9 +349,6 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		case 'd':
 			debugen = 1;
 			break;
-		case 'b':
-			*bidirectional = 1;
-			break;
 		case 'h':
 			tc_help();
 			return EINVAL;
@@ -388,11 +383,10 @@ int run_tc_mode(int argc, char **argv)
 	struct pkt_cfg cfg = { 0 };
 	int p1_sock, p2_sock;
 	char *p1 = NULL, *p2 = NULL;
-	int bidirectional = 0;
 	int count;
 	int err;
 
-	err = tc_parse_opt(argc, argv, &cfg, &p1, &p2, &bidirectional);
+	err = tc_parse_opt(argc, argv, &cfg, &p1, &p2);
 	if (err)
 		return err;
 
@@ -409,17 +403,6 @@ int run_tc_mode(int argc, char **argv)
 
 	count = cfg.count;
 	run(&port1, &port2);
-	if (!bidirectional)
-		goto out;
-	if (!is_running())
-		goto out;
-
-	/* TODO: Should we recreate the sockets when swapping direction? */
-	printf("Swapping direction...\n");
-	cfg.count = count;
-	port_clear_record(&port1);
-	port_clear_record(&port2);
-	run(&port2, &port1);
 
 out:
 	port_free(&port1);
