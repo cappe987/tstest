@@ -292,7 +292,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:o", long_options, NULL)) != -1) {
 		switch (c) {
 		case 1:
 			cfg->transportSpecific = strtoul(optarg, NULL, 0);
@@ -305,6 +305,9 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 			break;
 		case 'S':
 			cfg->tstype = TS_SOFTWARE;
+			break;
+		case 'o':
+			cfg->tstype = TS_ONESTEP;
 			break;
 		case 'i':
 			if (*p1 == NULL) {
