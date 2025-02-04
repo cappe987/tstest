@@ -17,6 +17,7 @@
 
 static void print_tsinfo(struct tsinfo *tsinfo)
 {
+	DEBUG("------------------\n");
 	DEBUG("TSINFO Type     %s\n", ptp_type2str(tsinfo->ptp_type));
 	DEBUG("TSINFO Seq      %u\n", tsinfo->seqid);
 	DEBUG("TSINFO src_self %u\n", tsinfo->src_is_self);
@@ -276,6 +277,12 @@ void stats_show(Stats *s, char *p1, char *p2, int count_left)
 		printf("%d measurements\n", s->count);
 	printf("%s -> %s\n", p1, p2);
 
+	if (debugen) {
+		for (int i = 0; i < s->count; i++) {
+			print_tsinfo(&s->tsinfo[i]);
+		}
+	}
+
 	StatsResult sync_time_error = stats_get_sync_time_error(s);
 	StatsResult delay_time_error = stats_get_delay_time_error(s);
 	StatsResult twoway_time_error = stats_get_twoway_time_error(s);
@@ -408,7 +415,7 @@ int record_add_tx_msg(PortRecord *pr, union Message *msg, int64_t *tx_ts)
 	new->src_is_self = true;
 	pr->count++;
 
-	print_message_record(pr->portname, new);
+	/* print_message_record(pr->portname, new); */
 	return 0;
 }
 
@@ -452,7 +459,7 @@ int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts)
 		new->src_is_self = true;
 	pr->count++;
 
-	print_message_record(pr->portname, new);
+	/* print_message_record(pr->portname, new); */
 	return 0;
 }
 

@@ -367,11 +367,6 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		}
 	}
 
-	if (cfg->sequence_length == 0) {
-		cfg->sequence_types[0] = SYNC;
-		cfg->sequence_length = 1;
-	}
-
 	if (!p1 || !p2) {
 		printf("Needs two ports. Use -i ethN -i ethM to specify two ports\n");
 		return EINVAL;
