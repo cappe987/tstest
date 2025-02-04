@@ -148,6 +148,7 @@ static StatsResult stats_get_time_error(Stats *s, int ptp_type)
 	int64_t timeerror;
 	StatsResult r;
 	struct tsinfo *first_sync = NULL;
+	int count = 0;
 
 	if (ptp_type == -1) {
 		ptp_type = SYNC;
@@ -179,8 +180,9 @@ static StatsResult stats_get_time_error(Stats *s, int ptp_type)
 		if (timeerror < r.min)
 			r.min = timeerror;
 		sum_err += timeerror;
+		count++;
 	}
-	r.mean = sum_err / s->count;
+	r.mean = sum_err / count;
 	return r;
 }
 
@@ -204,6 +206,7 @@ StatsResult stats_get_sync_latency(Stats *s)
 	int64_t sum_lat = 0;
 	int64_t latency;
 	StatsResult r;
+	int count = 0;
 
 	latency = tsinfo_get_latency(s->tsinfo[0]);
 	r.max = latency;
@@ -217,9 +220,10 @@ StatsResult stats_get_sync_latency(Stats *s)
 		if (latency < r.min)
 			r.min = latency;
 		sum_lat += latency;
+		count++;
 	}
 
-	r.mean = sum_lat / s->count;
+	r.mean = sum_lat / count;
 	return r;
 }
 
@@ -501,6 +505,7 @@ static int record_map_msg_to_tsinfo(Stats *s, MessageRecord *m, struct tsinfo *t
 
 	if (tsinfo->ptp_type == DELAY_REQ && m->ptp_type == DELAY_RESP) {
 		tsinfo->rx_ts = ptp_get_originTimestamp(&m->msg);
+		tsinfo->correction = ptp_get_correctionField(&m->msg);
 	}
 
 	return 0;
