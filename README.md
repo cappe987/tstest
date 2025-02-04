@@ -29,6 +29,7 @@ functionality at a time. Great for debugging purposes.
   desired since we want to give quick output).
 - BC mode
 - Refactor stats.c to better map messages???
+- Fix SeqID handling to have separate counters for each packet type.
 
 ## Credit
 A lot of the code is directly taken from the Linuxptp project and the Linux

@@ -309,4 +309,9 @@ static Integer64 ptp_get_correctionField(union Message *msg)
 	return be64toh(msg->hdr.correction) >> 16;
 }
 
+static void ptp_set_requestingPortIdentity(union Message *msg, struct PortIdentity *pid)
+{
+	memcpy(&msg->pdelay_resp.requestingPortIdentity, pid, sizeof(struct PortIdentity));
+}
+
 #endif /* __TSTEST_H__ */

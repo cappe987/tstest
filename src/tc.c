@@ -135,7 +135,7 @@ static void send_pkt(Port *port, int ptp_type)
 	send_pkt_with_ts(port, ptp_type, 0, 0);
 }
 
-static int delay_req_reply(Port *port, union Message *req, int64_t ns)
+static int delay_resp(Port *port, union Message *req, int64_t ns)
 {
 	int64_t correction = ptp_get_correctionField(req);
 	struct hw_timestamp hwts;
@@ -148,9 +148,40 @@ static int delay_req_reply(Port *port, union Message *req, int64_t ns)
 
 	resp = build_msg_with_ts(&port->cfg, DELAY_RESP, ns, correction);
 	ptp_set_seqId(&resp.hdr, ptp_get_seqId(&req->hdr));
+	ptp_set_requestingPortIdentity(&resp, &req->hdr.sourcePortIdentity);
 	send_msg(&port->cfg, port->g_sock, &resp, &tx_ts);
 	if (port->do_record)
 		record_add_tx_msg(&port->record, &resp, NULL);
+	return 0;
+}
+
+static int pdelay_resp(Port *port, union Message *req, int64_t ns)
+{
+	int64_t correction = ptp_get_correctionField(req);
+	struct hw_timestamp hwts;
+	union Message resp;
+	union Message resp_fup;
+	int64_t tx_ts;
+	int i = 0;
+
+	hwts.type = port->cfg.tstype;
+	hwts.ts.ns = 0;
+
+	resp = build_msg_with_ts(&port->cfg, PDELAY_RESP, ns, correction);
+	ptp_set_seqId(&resp.hdr, ptp_get_seqId(&req->hdr));
+	ptp_set_requestingPortIdentity(&resp, &req->hdr.sourcePortIdentity);
+	send_msg(&port->cfg, port->e_sock, &resp, &tx_ts);
+	if (port->do_record)
+		record_add_tx_msg(&port->record, &resp, NULL);
+	if (port->cfg.tstype != TS_P2P1STEP) {
+		resp_fup = build_msg(&port->cfg, FOLLOW_UP);
+		ptp_set_originTimestamp(&resp_fup, tx_ts);
+		ptp_set_seqId(&resp_fup.hdr, ptp_get_seqId(&req->hdr));
+		ptp_set_requestingPortIdentity(&resp_fup, &req->hdr.sourcePortIdentity);
+		send_msg(&port->cfg, port->g_sock, &resp_fup, &tx_ts);
+		if (port->do_record)
+			record_add_tx_msg(&port->record, &resp_fup, NULL);
+	}
 	return 0;
 }
 
@@ -179,7 +210,10 @@ int tc_event(Port *port, int fd_index)
 			record_add_rx_msg(&port->record, &msg, &ns);
 		switch (msg_get_type(&msg)) {
 		case DELAY_REQ:
-			delay_req_reply(port, &msg, ns);
+			delay_resp(port, &msg, ns);
+			break;
+		case PDELAY_REQ:
+			pdelay_resp(port, &msg, ns);
 			break;
 		default:
 			break;
@@ -209,7 +243,10 @@ int tc_event(Port *port, int fd_index)
 		break;
 	case FD_DELAY_TIMER:
 		read(port->pollfd[fd_index].fd, dummybuf, 8);
-		send_pkt(port, DELAY_REQ);
+		if (port->cfg.dm == DM_E2E)
+			send_pkt(port, DELAY_REQ);
+		else
+			send_pkt(port, PDELAY_REQ);
 		/* if (!port->cfg.nonstop_flag) */
 		/* port->cfg.count--; */
 		/* if (!debugen) { */
@@ -279,6 +316,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 	cfg->count = 10;
 	cfg->interval = 100;
 	cfg->listen = -1;
+	cfg->dm = DM_E2E;
 
 	struct option long_options[] = { { "help", no_argument, NULL, 'h' },
 					 { "transportSpecific", required_argument, NULL, 1 },
@@ -292,7 +330,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "SdD:hI:i:m:c:v:o", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "EPSdD:hI:i:m:c:v:o", long_options, NULL)) != -1) {
 		switch (c) {
 		case 1:
 			cfg->transportSpecific = strtoul(optarg, NULL, 0);
@@ -302,6 +340,12 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 			break;
 		case 3:
 			cfg->egressLatency = strtoul(optarg, NULL, 0);
+			break;
+		case 'E':
+			cfg->dm = DM_E2E;
+			break;
+		case 'P':
+			cfg->dm = DM_P2P;
 			break;
 		case 'S':
 			cfg->tstype = TS_SOFTWARE;
