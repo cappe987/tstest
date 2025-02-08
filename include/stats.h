@@ -16,29 +16,6 @@ typedef struct {
 } StatsResult;
 
 /* Ingress/egress latency of host should be accounted for in these timestamps */
-struct tsinfo {
-	/* ptp_type + seqid + src_is_self constitutes a key. Only
-	 * valid types are Sync, DelayReq, and PdelayReq. The
-	 * follow-ups and responses are recorded with the
-	 * original. I.e. Sync+FollowUp, DelayReq+DelayResp,
-	 * PdelayReq+PdelayResp+PdelayRespFup
-	 */
-	uint8_t ptp_type;
-	uint16_t seqid;
-	bool src_is_self;
-	int64_t tx_ts;
-	int64_t rx_ts;
-	int64_t correction;
-	bool tx_saved;
-	bool rx_saved; /* includes both rx_ts and correction */
-};
-
-typedef struct {
-	int count;
-	int size;
-	struct tsinfo *tsinfo;
-} Stats;
-
 typedef struct {
 	uint8_t ptp_type;
 	bool src_is_self;
@@ -57,21 +34,46 @@ typedef struct {
 	MessageRecord *msgs;
 } PortRecord;
 
-int stats_init(Stats *s, int size);
+typedef struct {
+	uint8_t primary_type; /* Sync, DelayReq, PdelayReq, etc. */
+	uint16_t seqid;
+	bool src_is_self;
+	MessageRecord *fst; /* Sync, DelayReq, PdelayReq, etc. */
+	MessageRecord *snd; /* FollowUp, DelayResp, PdelayResp */
+	MessageRecord *trd; /* PdelayRespFup */
+} PacketData;
+
+typedef struct {
+	int count;
+	int size;
+	/* struct tsinfo *tsinfo; */
+	enum delay_mechanism dm;
+	PacketData *packets;
+} Stats;
+
+static PacketData *get_next_of_type(Stats *s, int *i, int type)
+{
+	while (*i < s->count) {
+		if (s->packets[*i].primary_type == type) {
+			return &s->packets[*i];
+		}
+		(*i)++;
+	}
+	return NULL;
+}
+
+#define FOREACH_PKT_TYPE(stats, type, pkt_ptr)                                                     \
+	for (int i = 0; (pkt_ptr = get_next_of_type(stats, &i, type)); i++)
+
+int stats_init(Stats *s, enum delay_mechanism dm);
 void stats_free(Stats *s);
-int stats_add(Stats *s, struct tsinfo tsinfo);
-static StatsResult stats_get_sync_time_error(Stats *s);
-static StatsResult stats_get_delay_time_error(Stats *s);
-static StatsResult stats_get_twoway_time_error(Stats *s);
-StatsResult stats_get_sync_latency(Stats *s);
-StatsResult stats_get_sync_pdv(Stats *s);
 void stats_show(Stats *s, char *p1, char *p2, int count_left);
 void stats_output_measurements(Stats *s, char *path);
+void stats_collect_port_record(PortRecord *p, Stats *s);
 
 int record_init(PortRecord *pr, char *portname, int size);
 int record_add_tx_msg(PortRecord *pr, union Message *msg, int64_t *tx_ts);
 int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts);
-void record_map_messages(Stats *s, PortRecord *p1, PortRecord *p2);
 void record_free(PortRecord *pr);
 
 #endif /* __TSTEST_STATS_H__ */

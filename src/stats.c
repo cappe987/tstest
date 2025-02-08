@@ -6,25 +6,24 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "pkt.h"
 #include "liblink.h"
 #include "stats.h"
+#include "pkt.h"
 
 /* TODO:
  * - If performance becomes slow, aggregate all calculations into one
      loop and return a struct with all results.
  */
 
-static void print_tsinfo(struct tsinfo *tsinfo)
-{
-	DEBUG("------------------\n");
-	DEBUG("TSINFO Type     %s\n", ptp_type2str(tsinfo->ptp_type));
-	DEBUG("TSINFO Seq      %u\n", tsinfo->seqid);
-	DEBUG("TSINFO src_self %u\n", tsinfo->src_is_self);
-	DEBUG("TSINFO TX_TS    %" PRId64 "\n", tsinfo->tx_ts);
-	DEBUG("TSINFO RX_TS    %" PRId64 "\n", tsinfo->rx_ts);
-	DEBUG("TSINFO CORR     %" PRId64 "\n", tsinfo->correction);
-}
+/* Syncs and Delays are mapped based on sequence ID. This isn't ideal
+ * if they are not sent at the same time. It would be possible to map
+ * the DelayReq TX to Sync RX time. Or just send the DelayReq when a
+ * Sync is received so they can be associated. But this isn't ideal
+ * for BC and Pdelay.
+ *
+* Keep track of current delay/pdelay and record that along with a
+* received Sync. Do we need to discard the first couple measurements?
+ */
 
 static void print_message_record(char *port, MessageRecord *m)
 {
@@ -36,15 +35,13 @@ static void print_message_record(char *port, MessageRecord *m)
 	DEBUG("MR RX_TS    %" PRId64 "\n", m->rx_ts);
 }
 
-int stats_init(Stats *s, int size)
+int stats_init(Stats *s, enum delay_mechanism dm)
 {
-	if (size == 0)
-		s->size = 100;
-	else
-		s->size = size;
+	s->size = 100;
 	s->count = 0;
-	s->tsinfo = malloc(sizeof(struct tsinfo) * s->size);
-	if (!s->tsinfo) {
+	s->dm = dm;
+	s->packets = malloc(sizeof(PacketData) * s->size);
+	if (!s->packets) {
 		ERR("failed to allocate stats array");
 		return ENOMEM;
 	}
@@ -53,262 +50,10 @@ int stats_init(Stats *s, int size)
 
 void stats_free(Stats *s)
 {
-	free(s->tsinfo);
+	free(s->packets);
 	s->count = 0;
 	s->size = 0;
-	s->tsinfo = NULL;
-}
-
-/* int stats_add(Stats *s, int64_t tx_ts, int64_t rx_ts, int64_t correction, uint16_t seqid) */
-int stats_add(Stats *s, struct tsinfo tsinfo)
-{
-	struct tsinfo *tmp;
-
-	if (s->count == s->size) {
-		s->size = s->size * 2;
-		tmp = realloc(s->tsinfo, sizeof(struct tsinfo) * s->size);
-		if (!tmp) {
-			ERR("failed to reallocate stats array");
-			return ENOMEM;
-		}
-		s->tsinfo = tmp;
-	}
-
-	s->tsinfo[s->count] = tsinfo;
-	s->count++;
-	return 0;
-}
-
-static int64_t tsinfo_get_error(struct tsinfo tsinfo)
-{
-	return tsinfo.rx_ts - tsinfo.tx_ts - tsinfo.correction;
-}
-
-static int64_t tsinfo_get_latency(struct tsinfo tsinfo)
-{
-	return tsinfo.rx_ts - tsinfo.tx_ts;
-}
-
-/* Syncs and Delays are mapped based on sequence ID. This isn't ideal
- * if they are not sent at the same time. It would be possible to map
- * the DelayReq TX to Sync RX time. Or just send the DelayReq when a
- * Sync is received so they can be associated. But this isn't ideal
- * for BC and Pdelay.
- */
-
-static struct tsinfo *stats_get_tsinfo(Stats *s, int ptp_type, int seqid)
-{
-	for (int i = 0; i < s->count; i++)
-		if (s->tsinfo[i].ptp_type == ptp_type && s->tsinfo[i].seqid == seqid)
-			return &s->tsinfo[i];
-	return NULL;
-}
-
-static int stats_get_twoway_error(Stats *s, struct tsinfo *sync)
-{
-	int64_t timeerror, timeerror_delay;
-	struct tsinfo *delay;
-	timeerror = tsinfo_get_error(*sync);
-	delay = stats_get_tsinfo(s, DELAY_REQ, sync->seqid);
-	if (!delay) {
-		ERR("Missing Delay for Sync with SeqID %" PRId16, sync->seqid);
-		return 0;
-	}
-	timeerror_delay = tsinfo_get_error(*delay);
-	return (timeerror + timeerror_delay) / 2;
-}
-
-/* static StatsResult stats_get_twoway_time_error(Stats *s) */
-/* { */
-/* 	int64_t sum_err = 0; */
-/* 	int64_t timeerror, timerror_delay; */
-/* 	StatsResult r; */
-/* 	struct tsinfo *delay; */
-
-/* 	timeerror = tsinfo_get_error(s->tsinfo[0]); */
-/* 	r.max = timeerror; */
-/* 	r.min = timeerror; */
-/* 	for (int i = 0; i < s->count; i++) { */
-/* 		if (s->tsinfo[i].ptp_type != SYNC) */
-/* 			continue; */
-/* 		timeerror = stats_get_twoway_error(s, &s->tsinfo[i]); */
-/* 		if (timeerror > r.max) */
-/* 			r.max = timeerror; */
-/* 		if (timeerror < r.min) */
-/* 			r.min = timeerror; */
-/* 		sum_err += timeerror; */
-/* 	} */
-/* 	r.mean = sum_err / s->count; */
-/* 	return r; */
-/* } */
-
-static StatsResult stats_get_time_error(Stats *s, int ptp_type)
-{
-	int64_t sum_err = 0;
-	bool twoway = false;
-	int64_t timeerror;
-	StatsResult r;
-	struct tsinfo *first_sync = NULL;
-	int count = 0;
-
-	if (ptp_type == -1) {
-		ptp_type = SYNC;
-		twoway = true;
-	}
-
-	if (twoway) {
-		first_sync = stats_get_tsinfo(s, ptp_type, 0);
-		if (!first_sync) {
-			// TODO: Improve how this is handled. Don't base it
-			// on SeqId 0.
-			ERR("FAilED to find first Sync\n");
-		}
-		timeerror = stats_get_twoway_error(s, first_sync);
-	} else {
-		timeerror = tsinfo_get_error(s->tsinfo[0]);
-	}
-	r.max = timeerror;
-	r.min = timeerror;
-	for (int i = 0; i < s->count; i++) {
-		if (s->tsinfo[i].ptp_type != ptp_type)
-			continue;
-		if (twoway)
-			timeerror = stats_get_twoway_error(s, &s->tsinfo[i]);
-		else
-			timeerror = tsinfo_get_error(s->tsinfo[i]);
-		if (timeerror > r.max)
-			r.max = timeerror;
-		if (timeerror < r.min)
-			r.min = timeerror;
-		sum_err += timeerror;
-		count++;
-	}
-	r.mean = sum_err / count;
-	return r;
-}
-
-static StatsResult stats_get_sync_time_error(Stats *s)
-{
-	return stats_get_time_error(s, SYNC);
-}
-
-static StatsResult stats_get_delay_time_error(Stats *s)
-{
-	return stats_get_time_error(s, DELAY_REQ);
-}
-
-static StatsResult stats_get_twoway_time_error(Stats *s)
-{
-	return stats_get_time_error(s, -1);
-}
-
-StatsResult stats_get_sync_latency(Stats *s)
-{
-	int64_t sum_lat = 0;
-	int64_t latency;
-	StatsResult r;
-	int count = 0;
-
-	latency = tsinfo_get_latency(s->tsinfo[0]);
-	r.max = latency;
-	r.min = latency;
-	for (int i = 0; i < s->count; i++) {
-		if (s->tsinfo[i].ptp_type != SYNC)
-			continue;
-		latency = tsinfo_get_latency(s->tsinfo[i]);
-		if (latency > r.max)
-			r.max = latency;
-		if (latency < r.min)
-			r.min = latency;
-		sum_lat += latency;
-		count++;
-	}
-
-	r.mean = sum_lat / count;
-	return r;
-}
-
-static int64_t pdv_get_lucky_packet(Stats *s)
-{
-	int64_t lucky_packet, tmp;
-
-	lucky_packet = s->tsinfo[0].rx_ts - s->tsinfo[0].tx_ts;
-	for (int i = 1; i < s->count; i++) {
-		if (s->tsinfo[i].ptp_type != SYNC)
-			continue;
-		tmp = s->tsinfo[i].rx_ts - s->tsinfo[i].tx_ts;
-		if (tmp < lucky_packet)
-			lucky_packet = tmp;
-	}
-	return lucky_packet;
-}
-
-StatsResult stats_get_sync_pdv(Stats *s)
-{
-	int64_t lucky_packet, tmp, sum = 0;
-	StatsResult r = { 0 };
-
-	lucky_packet = pdv_get_lucky_packet(s);
-	r.max = 0;
-	r.min = 0;
-	for (int i = 0; i < s->count; i++) {
-		if (s->tsinfo[i].ptp_type != SYNC)
-			continue;
-		tmp = (s->tsinfo[i].rx_ts - s->tsinfo[i].tx_ts) - lucky_packet;
-		sum += tmp;
-		if (tmp > r.max)
-			r.max = tmp;
-	}
-	r.mean = sum / s->count;
-	return r;
-}
-
-void stats_show(Stats *s, char *p1, char *p2, int count_left)
-{
-	if (s->count == 0) {
-		printf("No measurements\n");
-		return;
-	}
-
-	if (count_left)
-		printf("%d measurements (exited early, expected %d)\n", s->count,
-		       s->count + count_left);
-	else
-		printf("%d measurements\n", s->count);
-	printf("%s -> %s\n", p1, p2);
-
-	if (debugen) {
-		for (int i = 0; i < s->count; i++) {
-			print_tsinfo(&s->tsinfo[i]);
-		}
-	}
-
-	StatsResult sync_time_error = stats_get_sync_time_error(s);
-	StatsResult delay_time_error = stats_get_delay_time_error(s);
-	StatsResult twoway_time_error = stats_get_twoway_time_error(s);
-	StatsResult sync_latency = stats_get_sync_latency(s);
-	StatsResult sync_pdv = stats_get_sync_pdv(s);
-
-	printf("--- SYNC TIME ERROR ---\n");
-	printf("Mean: %" PRId64 "\n", sync_time_error.mean);
-	printf("Max : %" PRId64 "\n", sync_time_error.max);
-	printf("Min : %" PRId64 "\n", sync_time_error.min);
-	printf("--- DELAY TIME ERROR ---\n");
-	printf("Mean: %" PRId64 "\n", delay_time_error.mean);
-	printf("Max : %" PRId64 "\n", delay_time_error.max);
-	printf("Min : %" PRId64 "\n", delay_time_error.min);
-	printf("--- 2-WAY TIME ERROR ---\n");
-	printf("Mean: %" PRId64 "\n", twoway_time_error.mean);
-	printf("Max : %" PRId64 "\n", twoway_time_error.max);
-	printf("Min : %" PRId64 "\n", twoway_time_error.min);
-	printf("--- LATENCY ---\n");
-	printf("Mean: %" PRId64 "\n", sync_latency.mean);
-	printf("Max : %" PRId64 "\n", sync_latency.max);
-	printf("Min : %" PRId64 "\n", sync_latency.min);
-	printf("--- PDV ---\n");
-	printf("Mean: %" PRId64 "\n", sync_pdv.mean);
-	printf("Max : %" PRId64 "\n", sync_pdv.max);
-	printf("Min : %" PRId64 " (lucky packet)\n", sync_pdv.min);
+	s->packets = NULL;
 }
 
 static int ts_sec(int64_t ts)
@@ -319,51 +64,6 @@ static int ts_sec(int64_t ts)
 static int ts_msec(int64_t ts)
 {
 	return (ts / 1000000) % 1000;
-}
-
-static void write_val_to_file(Stats *s, FILE *fp, struct tsinfo *tsinfo, int64_t val)
-{
-	int64_t curr_time;
-	curr_time = tsinfo->tx_ts - s->tsinfo[0].tx_ts;
-	fprintf(fp, "%d.%03d %" PRId64 "\n", ts_sec(curr_time), ts_msec(curr_time), val);
-}
-
-/* XXX: Should we output raw values instead? If we have a lot of
- * measurements it might be easier to let external software do the
- * calculations it wants to plot.
- */
-void stats_output_measurements(Stats *s, char *path)
-{
-	int64_t base_time, curr_time, val, lucky_packet;
-	FILE *fp;
-
-	base_time = s->tsinfo[0].tx_ts;
-
-	fp = fopen(path, "w");
-	if (!fp) {
-		ERR("failed opening file %s: %m", path);
-		return;
-	}
-
-	fprintf(fp, "TIMEERROR\n");
-	for (int i = 0; i < s->count; i++) {
-		val = tsinfo_get_error(s->tsinfo[i]);
-		write_val_to_file(s, fp, &s->tsinfo[i], val);
-	}
-	fprintf(fp, "\n");
-	fprintf(fp, "LATENCY\n");
-	for (int i = 0; i < s->count; i++) {
-		val = tsinfo_get_latency(s->tsinfo[i]);
-		write_val_to_file(s, fp, &s->tsinfo[i], val);
-	}
-	fprintf(fp, "\n");
-	fprintf(fp, "PDV\n");
-	lucky_packet = pdv_get_lucky_packet(s);
-	for (int i = 0; i < s->count; i++) {
-		val = (s->tsinfo[i].rx_ts - s->tsinfo[i].tx_ts) - lucky_packet;
-		write_val_to_file(s, fp, &s->tsinfo[i], val);
-	}
-	fclose(fp);
 }
 
 int record_init(PortRecord *pr, char *portname, int size)
@@ -380,6 +80,14 @@ int record_init(PortRecord *pr, char *portname, int size)
 		return ENOMEM;
 	}
 	return 0;
+}
+
+void record_free(PortRecord *pr)
+{
+	free(pr->msgs);
+	pr->count = 0;
+	pr->size = 0;
+	pr->msgs = NULL;
 }
 
 int record_add_tx_msg(PortRecord *pr, union Message *msg, int64_t *tx_ts)
@@ -463,15 +171,6 @@ int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts)
 	return 0;
 }
 
-static struct tsinfo *stats_get_record(Stats *s, uint8_t ptp_type, uint16_t seqid)
-{
-	for (int i = 0; i < s->count; i++) {
-		if (s->tsinfo[i].ptp_type == ptp_type && s->tsinfo[i].seqid == seqid)
-			return &s->tsinfo[i];
-	}
-	return NULL;
-}
-
 static uint8_t get_primary_type(MessageRecord *m)
 {
 	if (m->ptp_type == SYNC || m->ptp_type == FOLLOW_UP)
@@ -485,82 +184,333 @@ static uint8_t get_primary_type(MessageRecord *m)
 	return m->ptp_type;
 }
 
-/* static int is_matching_types(MessageRecord *m1, MessageRecord *m2) */
-/* { */
-/* 	return get_primary_type(m1) == get_primary_type(m2); */
-/* } */
-
-static int record_map_msg_to_tsinfo(Stats *s, MessageRecord *m, struct tsinfo *tsinfo)
+static PacketData *stats_get_matching(Stats *s, MessageRecord *msg)
 {
-	if (m->tx_ts) {
-		if (tsinfo->tx_ts && m->tx_ts != tsinfo->tx_ts) {
-			ERR("Record and tsinfo has different tx_ts. %" PRId64 " and %" PRId64 "\n",
-			    m->tx_ts, tsinfo->tx_ts);
+	PacketData *pkt;
+
+	for (int i = 0; i < s->count; i++) {
+		pkt = &s->packets[i];
+		if (pkt->primary_type == get_primary_type(msg) && pkt->seqid == msg->seqid)
+			return pkt;
+	}
+	return NULL;
+}
+
+static void stats_assign_msg(PacketData *pkt, MessageRecord *msg)
+{
+	if (msg->ptp_type == FOLLOW_UP || msg->ptp_type == DELAY_RESP ||
+	    msg->ptp_type == PDELAY_RESP) {
+		pkt->snd = msg;
+	} else if (msg->ptp_type == PDELAY_RESP_FUP) {
+		pkt->trd = msg;
+	} else {
+		pkt->fst = msg;
+		pkt->seqid = msg->seqid;
+	}
+	pkt->primary_type = get_primary_type(msg);
+}
+
+static int stats_add_new(Stats *s, MessageRecord *msg)
+{
+	PacketData *tmp;
+
+	if (s->count == s->size) {
+		s->size = s->size * 2;
+		tmp = realloc(s->packets, sizeof(PacketData) * s->size);
+		if (!tmp) {
+			ERR("failed to reallocate stats array");
+			return ENOMEM;
 		}
-		tsinfo->tx_ts = m->tx_ts;
+		s->packets = tmp;
 	}
 
-	if (m->rx_ts) {
-		if (tsinfo->rx_ts && m->rx_ts != tsinfo->rx_ts) {
-			ERR("Record and tsinfo has different rx_ts. %" PRId64 " and %" PRId64 "\n",
-			    m->rx_ts, tsinfo->rx_ts);
-		}
-		tsinfo->rx_ts = m->rx_ts;
-		/* Add correction. Adjustments can be made in any packet */
-		tsinfo->correction += ptp_get_correctionField(&m->msg);
-	}
-
-	if (tsinfo->ptp_type == DELAY_REQ && m->ptp_type == DELAY_RESP) {
-		tsinfo->rx_ts = ptp_get_originTimestamp(&m->msg);
-		tsinfo->correction = ptp_get_correctionField(&m->msg);
-	}
-
+	stats_assign_msg(&s->packets[s->count], msg);
+	s->count++;
 	return 0;
 }
 
-static struct tsinfo record_msg_to_tsinfo(MessageRecord *m)
+static int stats_add_msg(Stats *s, MessageRecord *msg)
 {
-	struct tsinfo tsinfo = { 0 };
+	PacketData *pkt = stats_get_matching(s, msg);
 
-	tsinfo.ptp_type = get_primary_type(m);
-	tsinfo.seqid = m->seqid;
-	tsinfo.src_is_self = m->src_is_self;
-	if (m->tx_ts) {
-		tsinfo.tx_ts = m->tx_ts;
-	}
-	if (m->rx_ts) {
-		tsinfo.rx_ts = m->rx_ts;
-		tsinfo.correction = ptp_get_correctionField(&m->msg);
-	}
-	return tsinfo;
+	if (!pkt)
+		return stats_add_new(s, msg);
+
+	stats_assign_msg(pkt, msg);
+	return 0;
 }
 
-void record_map_messages(Stats *s, PortRecord *p1, PortRecord *p2)
+void stats_collect_port_record(PortRecord *p, Stats *s)
 {
-	MessageRecord *m1, *m2;
-	struct tsinfo *tsinfo;
-	int matched = 0;
+	MessageRecord *m;
 
-	for (int i = 0; i < p1->count; i++) {
-		m1 = &p1->msgs[i];
-		stats_add(s, record_msg_to_tsinfo(m1));
-	}
-
-	for (int i = 0; i < p2->count; i++) {
-		m2 = &p2->msgs[i];
-		tsinfo = stats_get_record(s, get_primary_type(m2), m2->seqid);
-		if (!tsinfo) {
-			stats_add(s, record_msg_to_tsinfo(m2));
-			continue;
-		}
-		record_map_msg_to_tsinfo(s, m2, tsinfo);
+	for (int i = 0; i < p->count; i++) {
+		m = &p->msgs[i];
+		stats_add_msg(s, m);
 	}
 }
 
-void record_free(PortRecord *pr)
+static int64_t tc_get_latency(PacketData *pkt)
 {
-	free(pr->msgs);
-	pr->count = 0;
-	pr->size = 0;
-	pr->msgs = NULL;
+	if (msg_is_onestep(&pkt->fst->msg))
+		return pkt->fst->rx_ts - pkt->fst->tx_ts;
+	else
+		return pkt->fst->rx_ts - ptp_get_originTimestamp(&pkt->snd->msg);
+}
+
+static PacketData *stats_get_data(Stats *s, int ptp_type, int seqid)
+{
+	for (int i = 0; i < s->count; i++)
+		if (s->packets[i].primary_type == ptp_type && s->packets[i].seqid == seqid)
+			return &s->packets[i];
+	return NULL;
+}
+
+static int64_t tc_sync_get_tx_ts(PacketData *sync)
+{
+	if (msg_is_onestep(&sync->fst->msg))
+		return ptp_get_originTimestamp(&sync->fst->msg);
+	else
+		return ptp_get_originTimestamp(&sync->snd->msg);
+}
+
+static int64_t tc_get_oneway_error(PacketData *pkt)
+{
+	if (pkt->primary_type == SYNC) {
+		if (msg_is_onestep(&pkt->fst->msg))
+			return pkt->fst->rx_ts - pkt->fst->tx_ts -
+			       ptp_get_correctionField(&pkt->fst->msg);
+		else
+			return pkt->fst->rx_ts - ptp_get_originTimestamp(&pkt->snd->msg) -
+			       ptp_get_correctionField(&pkt->fst->msg) -
+			       ptp_get_correctionField(&pkt->snd->msg);
+	} else if (pkt->primary_type == DELAY_REQ) {
+		return ptp_get_originTimestamp(&pkt->snd->msg) - pkt->fst->tx_ts -
+		       ptp_get_correctionField(&pkt->fst->msg) -
+		       ptp_get_correctionField(&pkt->snd->msg);
+	}
+	ERR("Unhandled case in %s", __func__);
+	return INT64_MIN;
+}
+
+static int tc_get_twoway_error(Stats *s, PacketData *sync)
+{
+	int64_t timeerror, timeerror_delay;
+	PacketData *delay;
+	timeerror = tc_get_oneway_error(sync);
+	delay = stats_get_data(s, DELAY_REQ, sync->seqid);
+	if (!delay) {
+		ERR("Missing Delay for Sync with SeqID %" PRId16, sync->seqid);
+		return 0;
+	}
+	timeerror_delay = tc_get_oneway_error(delay);
+	return (timeerror + timeerror_delay) / 2;
+}
+
+static int64_t tc_get_time_error(Stats *s, PacketData *pkt, bool twoway)
+{
+	if (twoway)
+		return tc_get_twoway_error(s, pkt);
+	else
+		return tc_get_oneway_error(pkt);
+}
+
+static StatsResult stats_get_time_error(Stats *s, int ptp_type)
+{
+	StatsResult r = { 0 };
+	bool twoway = false;
+	int64_t sum_err = 0;
+	int64_t timeerror;
+	int count = 0;
+
+	if (ptp_type == -1) {
+		ptp_type = SYNC;
+		twoway = true;
+	}
+
+	PacketData *pkt;
+	FOREACH_PKT_TYPE(s, ptp_type, pkt) {
+		timeerror = tc_get_time_error(s, pkt, twoway);
+		if (timeerror > r.max || count == 0)
+			r.max = timeerror;
+		if (timeerror < r.min || count == 0)
+			r.min = timeerror;
+		sum_err += timeerror;
+		count++;
+	}
+	r.mean = sum_err / count;
+	return r;
+}
+
+static StatsResult stats_get_sync_latency(Stats *s)
+{
+	StatsResult r = { 0 };
+	int64_t sum_latency = 0;
+	PacketData *pkt;
+	int64_t latency;
+	int count = 0;
+
+	FOREACH_PKT_TYPE(s, SYNC, pkt) {
+		latency = tc_get_latency(pkt);
+		if (latency > r.max || count == 0)
+			r.max = latency;
+		if (latency < r.min || count == 0)
+			r.min = latency;
+		sum_latency += latency;
+		count++;
+	}
+	r.mean = sum_latency / count;
+	return r;
+}
+
+static int64_t pdv_get_lucky_packet(Stats *s)
+{
+	int64_t lucky_packet, tmp;
+	PacketData *pkt;
+	int count = 0;
+
+	FOREACH_PKT_TYPE(s, SYNC, pkt) {
+		tmp = pkt->fst->rx_ts - tc_sync_get_tx_ts(pkt);
+		if (tmp < lucky_packet || count == 0)
+			lucky_packet = tmp;
+		count++;
+	}
+	return lucky_packet;
+}
+
+StatsResult stats_get_sync_pdv(Stats *s)
+{
+	int64_t lucky_packet, tmp, sum = 0;
+	StatsResult r = { 0 };
+	PacketData *pkt;
+
+	lucky_packet = pdv_get_lucky_packet(s);
+	r.max = 0;
+	r.min = 0;
+	FOREACH_PKT_TYPE(s, SYNC, pkt) {
+		tmp = (pkt->fst->rx_ts - tc_sync_get_tx_ts(pkt)) - lucky_packet;
+		sum += tmp;
+		if (tmp > r.max)
+			r.max = tmp;
+	}
+	r.mean = sum / s->count;
+	return r;
+}
+
+void stats_show(Stats *s, char *p1, char *p2, int count_left)
+{
+	if (s->count == 0) {
+		printf("No measurements\n");
+		return;
+	}
+
+	if (count_left)
+		printf("%d measurements (exited early, expected %d)\n", s->count,
+		       s->count + count_left);
+	else
+		printf("%d measurements\n", s->count);
+	printf("%s -> %s\n", p1, p2);
+
+	/* if (debugen) { */
+	/* 	for (int i = 0; i < s->count; i++) { */
+	/* 		print_tsinfo(&s->tsinfo[i]); */
+	/* 	} */
+	/* } */
+
+	StatsResult sync_time_error = stats_get_time_error(s, SYNC);
+	StatsResult delay_time_error = stats_get_time_error(s, DELAY_REQ);
+	StatsResult twoway_time_error = stats_get_time_error(s, -1);
+	StatsResult sync_latency = stats_get_sync_latency(s);
+	StatsResult sync_pdv = stats_get_sync_pdv(s);
+
+	printf("--- SYNC_TIME_ERROR ---\n");
+	printf("Mean: %" PRId64 "\n", sync_time_error.mean);
+	printf("Max : %" PRId64 "\n", sync_time_error.max);
+	printf("Min : %" PRId64 "\n", sync_time_error.min);
+	printf("--- DELAY_TIME_ERROR ---\n");
+	printf("Mean: %" PRId64 "\n", delay_time_error.mean);
+	printf("Max : %" PRId64 "\n", delay_time_error.max);
+	printf("Min : %" PRId64 "\n", delay_time_error.min);
+	printf("--- 2WAY_TIME_ERROR ---\n");
+	printf("Mean: %" PRId64 "\n", twoway_time_error.mean);
+	printf("Max : %" PRId64 "\n", twoway_time_error.max);
+	printf("Min : %" PRId64 "\n", twoway_time_error.min);
+	printf("--- LATENCY ---\n");
+	printf("Mean: %" PRId64 "\n", sync_latency.mean);
+	printf("Max : %" PRId64 "\n", sync_latency.max);
+	printf("Min : %" PRId64 "\n", sync_latency.min);
+	printf("--- PDV ---\n");
+	printf("Mean: %" PRId64 "\n", sync_pdv.mean);
+	printf("Max : %" PRId64 "\n", sync_pdv.max);
+	printf("Min : %" PRId64 " (lucky packet)\n", sync_pdv.min);
+}
+
+static int64_t get_tx_ts(PacketData *pkt)
+{
+	if (pkt->primary_type == SYNC)
+		return tc_sync_get_tx_ts(pkt);
+	else if (pkt->primary_type == DELAY_REQ)
+		return pkt->fst->tx_ts;
+	else if (pkt->primary_type == PDELAY_REQ)
+		return pkt->fst->tx_ts;
+	else
+		ERR("%s: Bad packet type", __func__);
+	return INT64_MIN;
+}
+
+static int64_t get_earliest_tx_ts(Stats *s)
+{
+	int64_t earliest = 0, tmp;
+
+	for (int i = 0; i < s->count; i++) {
+		tmp = get_tx_ts(&s->packets[i]);
+		if (tmp < earliest || i == 0)
+			earliest = tmp;
+	}
+	return earliest;
+}
+
+static void write_val_to_file(Stats *s, FILE *fp, PacketData *pkt, int64_t val, int64_t base_time)
+{
+	int64_t curr_time;
+	curr_time = get_tx_ts(pkt) - base_time;
+	fprintf(fp, "%d.%03d %" PRId64 "\n", ts_sec(curr_time), ts_msec(curr_time), val);
+}
+/* XXX: Should we output raw values instead? If we have a lot of
+ * measurements it might be easier to let external software do the
+ * calculations it wants to plot.
+ */
+void stats_output_measurements(Stats *s, char *path)
+{
+	int64_t base_time, curr_time, val, lucky_packet;
+	FILE *fp;
+
+	base_time = get_earliest_tx_ts(s);
+
+	fp = fopen(path, "w");
+	if (!fp) {
+		ERR("failed opening file %s: %m", path);
+		return;
+	}
+
+	fprintf(fp, "SYNC_TIME_ERROR\n");
+	PacketData *pkt;
+	FOREACH_PKT_TYPE(s, SYNC, pkt) {
+		val = tc_get_time_error(s, pkt, false);
+		write_val_to_file(s, fp, pkt, val, base_time);
+	}
+	fprintf(fp, "\n");
+	fprintf(fp, "SYNC_LATENCY\n");
+	FOREACH_PKT_TYPE(s, SYNC, pkt) {
+		val = tc_get_latency(pkt);
+		write_val_to_file(s, fp, pkt, val, base_time);
+	}
+	fprintf(fp, "\n");
+	fprintf(fp, "SYNC_PDV\n");
+	lucky_packet = pdv_get_lucky_packet(s);
+	FOREACH_PKT_TYPE(s, SYNC, pkt) {
+		val = (pkt->fst->rx_ts - tc_sync_get_tx_ts(pkt)) - lucky_packet;
+		write_val_to_file(s, fp, pkt, val, base_time);
+	}
+	fclose(fp);
 }

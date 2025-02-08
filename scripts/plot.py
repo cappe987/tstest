@@ -45,9 +45,9 @@ def make_page(info, t, s):
 
 
 texts = {
-    'TIMEERROR': {'title': 'Time Error (one-way)', 'ylabel': 'Time Error [ns]', 'color': 'blue'},
-    'LATENCY': {'title': 'Latency', 'ylabel': 'Latency [ns]', 'color': 'green'},
-    'PDV': {'title': 'Packet Delay Variance (PDV)', 'ylabel': 'PDV [ns]', 'color': 'red'},
+    'SYNC_TIME_ERROR': {'title': 'Sync Time Error', 'ylabel': 'Time Error [ns]', 'color': 'blue'},
+    'SYNC_LATENCY': {'title': 'Sync Latency', 'ylabel': 'Latency [ns]', 'color': 'green'},
+    'SYNC_PDV': {'title': 'Sync PDV (Packet Delay Variance)', 'ylabel': 'PDV [ns]', 'color': 'red'},
 }
 
 

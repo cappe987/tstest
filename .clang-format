@@ -505,6 +505,7 @@ ForEachMacros:
   - 'xbc_node_for_each_child'
   - 'xbc_node_for_each_key_value'
   - 'zorro_for_each_dev'
+  - 'FOREACH_PKT_TYPE'
 
 #IncludeBlocks: Preserve # Unknown to clang-format-5.0
 IncludeCategories:
@@ -545,7 +546,8 @@ SpaceAfterTemplateKeyword: true
 SpaceBeforeAssignmentOperators: true
 #SpaceBeforeCtorInitializerColon: true # Unknown to clang-format-5.0
 #SpaceBeforeInheritanceColon: true # Unknown to clang-format-5.0
-SpaceBeforeParens: ControlStatements
+# SpaceBeforeParens: ControlStatements
+SpaceBeforeParens: ControlStatementsExceptForEachMacros
 #SpaceBeforeRangeBasedForLoopColon: true # Unknown to clang-format-5.0
 SpaceInEmptyParentheses: false
 SpacesBeforeTrailingComments: 1

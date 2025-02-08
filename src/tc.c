@@ -271,16 +271,11 @@ out:
 
 static void run(Port *p1, Port *p2)
 {
-	/* int expected_count = p1->sync_count + p2->delay_req_count; */
 	Stats s;
 	int err;
 
 	p1->sync_count = p1->cfg.count;
 	p2->delay_req_count = p2->cfg.count;
-
-	err = stats_init(&s, p1->sync_count + p2->delay_req_count);
-	if (err)
-		return;
 
 	port_set_timer(p1, FD_SYNC_TX_TIMER, p1->cfg.interval);
 	port_set_timer(p2, FD_DELAY_TIMER, p2->cfg.interval);
@@ -296,9 +291,10 @@ static void run(Port *p1, Port *p2)
 		port_poll(p2);
 	}
 
-	if (!debugen && is_running())
-		printf("\n");
-	record_map_messages(&s, &p1->record, &p2->record);
+	err = stats_init(&s, p1->cfg.dm);
+	if (err)
+		return;
+	stats_collect_port_record(&p2->record, &s);
 	stats_show(&s, p1->cfg.interface, p2->cfg.interface, p1->sync_count + p2->delay_req_count);
 	stats_output_measurements(&s, "measurements.dat");
 	stats_free(&s);

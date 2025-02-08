@@ -32,5 +32,5 @@ functionality at a time. Great for debugging purposes.
 - Fix SeqID handling to have separate counters for each packet type.
 
 ## Credit
-A lot of the code is directly taken from the Linuxptp project and the Linux
+Some of the code is directly taken from the Linuxptp project and the Linux
 kernel and simplified/modified.
