@@ -442,6 +442,7 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 	struct option long_options[] = { { "help", no_argument, NULL, 'h' },
 					 { "transportSpecific", required_argument, NULL, 1 },
 					 { "twoStepFlag", required_argument, NULL, 2 },
+					 { "header_offset", required_argument, NULL, 3 },
 					 { NULL, 0, NULL, 0 } };
 
 	if (argc == 1) {
@@ -458,6 +459,9 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 		case 2:
 			cfg->twoStepFlag = strtoul(optarg, NULL, 0);
 			cfg->twoStepFlag_set = 1;
+			break;
+		case 3:
+			cfg->header_offset = strtoul(optarg, NULL, 0);
 			break;
 		case 'T':
 			if (cfg->sequence_length >= SEQUENCE_MAX) {
@@ -593,7 +597,8 @@ int run_pkt_mode(int argc, char **argv)
 	}
 
 	err = sk_timestamping_init(sock, cfg.interface, HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
-				   cfg.tstype, TRANS_IEEE_802_3, -1, 0, DM_P2P, 0);
+				   cfg.tstype, TRANS_IEEE_802_3, -1, cfg.domain, DM_P2P,
+				   cfg.header_offset);
 	if (err < 0) {
 		ERR_NO("failed to enable timestamping");
 		return err;

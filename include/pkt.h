@@ -20,6 +20,7 @@ struct pkt_cfg {
 	int twoStepFlag_set;
 	int ingressLatency;
 	int egressLatency;
+	int header_offset;
 	int nonstop_flag;
 	int twoStepFlag;
 	int tstamp_all;
