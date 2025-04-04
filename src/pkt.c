@@ -66,6 +66,8 @@ Options:\n\
         -h help\n\
 	--transportSpecific <value>. Set value for the transportSpecific field\n\
 	--twoStepFlag <0|1>. Force if twoStepFlag should be set or not. Default is automatic\n\
+	--ingressLatency <ns>. \n\
+	--egressLatency <ns>. \n\
         \n");
 }
 
@@ -194,7 +196,7 @@ static int send_print(struct pkt_cfg *cfg, int sock, int type, struct hw_timesta
 	int err;
 
 	err = build_and_send(cfg, sock, type, hwts, &ns);
-	print_ts("TS: ", ns);
+	print_ts("TS: ", ns + cfg->egressLatency);
 	return err;
 }
 
@@ -423,7 +425,7 @@ static void rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
 			continue;
 		printf("Type: %s. ", ptp_type2str(rx_msg->hdr.tsmt & 0xF));
-		print_ts("TS: ", hwts->ts.ns);
+		print_ts("TS: ", hwts->ts.ns - cfg->ingressLatency);
 	}
 }
 
@@ -443,6 +445,8 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 					 { "transportSpecific", required_argument, NULL, 1 },
 					 { "twoStepFlag", required_argument, NULL, 2 },
 					 { "header_offset", required_argument, NULL, 3 },
+					 { "ingressLatency", required_argument, NULL, 4 },
+					 { "egressLatency", required_argument, NULL, 5 },
 					 { NULL, 0, NULL, 0 } };
 
 	if (argc == 1) {
@@ -462,6 +466,12 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 			break;
 		case 3:
 			cfg->header_offset = strtoul(optarg, NULL, 0);
+			break;
+		case 4:
+			cfg->ingressLatency = strtoul(optarg, NULL, 0);
+			break;
+		case 5:
+			cfg->egressLatency = strtoul(optarg, NULL, 0);
 			break;
 		case 'T':
 			if (cfg->sequence_length >= SEQUENCE_MAX) {
@@ -556,6 +566,27 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 	return 0;
 }
 
+int handle_term_signals(void)
+{
+	if (SIG_ERR == signal(SIGINT, sig_handler)) {
+		fprintf(stderr, "cannot handle SIGINT\n");
+		return -1;
+	}
+	if (SIG_ERR == signal(SIGQUIT, sig_handler)) {
+		fprintf(stderr, "cannot handle SIGQUIT\n");
+		return -1;
+	}
+	if (SIG_ERR == signal(SIGTERM, sig_handler)) {
+		fprintf(stderr, "cannot handle SIGTERM\n");
+		return -1;
+	}
+	if (SIG_ERR == signal(SIGHUP, sig_handler)) {
+		fprintf(stderr, "cannot handle SIGHUP\n");
+		return -1;
+	}
+	return 0;
+}
+
 int run_pkt_mode(int argc, char **argv)
 {
 	enum transport_event event_type;
@@ -579,7 +610,8 @@ int run_pkt_mode(int argc, char **argv)
 	/*return EINVAL;*/
 	/*}*/
 
-	signal(SIGINT, sig_handler);
+	/* signal(SIGINT, sig_handler); */
+	handle_term_signals();
 
 	if (!cfg.count)
 		cfg.nonstop_flag = 1;
