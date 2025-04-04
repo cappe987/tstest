@@ -21,13 +21,22 @@
 
 #include "net_tstamp_cpy.h"
 #include "version.h"
+#include "tstest.h"
+#include "pkt.h"
 
 typedef struct {
 	char *iface;
 	int polarity;
 	int channel;
 	int pin_idx;
-} Extts_Cfg;
+} Extts_cfg;
+
+typedef struct {
+	char *iface;
+	int pulsewidth;
+	int channel;
+	int pin_idx;
+} Pps_cfg;
 
 #define pr_err(...) fprintf(stderr, __VA_ARGS__)
 #define pr_emerg(...) fprintf(stderr, __VA_ARGS__)
@@ -71,6 +80,13 @@ typedef struct {
 #else
 #define PTP_EXTTS_REQUEST_FAILED "PTP_EXTTS_REQUEST failed: %m\n"
 #define PTP_EXTTS_REQUEST2 PTP_EXTTS_REQUEST
+#endif
+
+#ifdef PTP_PEROUT_REQUEST2
+#define PTP_PEROUT_REQUEST_FAILED "PTP_PEROUT_REQUEST2 failed: %m"
+#else
+#define PTP_PEROUT_REQUEST_FAILED "PTP_PEROUT_REQUEST failed: %m"
+#define PTP_PEROUT_REQUEST2 PTP_PEROUT_REQUEST
 #endif
 
 int running;
@@ -120,6 +136,20 @@ Options:\n\
         -p <pin>\n\
         -c <channel>\n\
         -P <polarity> (rising|falling|both)\n\
+\n");
+}
+
+void pps_help()
+{
+	fprintf(stderr, "\n--- TSTest External Timestamps ---\n\n");
+	fprintf(stderr, "Enables PPS on the given interface. Disables and exits on SIGINT\n\n\
+Usage:\n\
+        tstest pps [options]\n\n\
+Options:\n\
+        -i <interface>\n\
+        -p <pin>\n\
+        -c <channel>\n\
+        -w <pulsewidth>. Width of the PPS pulse in nanoseconds.\n\
 \n");
 }
 
@@ -369,7 +399,7 @@ struct ts2phc_clock *ts2phc_clock_add(const char *device)
 	return c;
 }
 
-static int toggle_extts(struct ts2phc_clock *clock, Extts_Cfg *cfg, int ena)
+static int toggle_extts(struct ts2phc_clock *clock, Extts_cfg *cfg, int ena)
 {
 	struct ptp_extts_request extts;
 	struct ptp_pin_desc pin_desc;
@@ -399,6 +429,89 @@ static int toggle_extts(struct ts2phc_clock *clock, Extts_Cfg *cfg, int ena)
 		pr_err(PTP_EXTTS_REQUEST_FAILED);
 		return -1;
 	}
+	return 0;
+}
+
+static void pps_destroy(struct ts2phc_clock *clock, Pps_cfg *cfg)
+{
+	struct ptp_perout_request perout_request;
+
+	memset(&perout_request, 0, sizeof(perout_request));
+	perout_request.index = cfg->channel;
+	if (ioctl(clock->fd, PTP_PEROUT_REQUEST2, &perout_request)) {
+		pr_err(PTP_PEROUT_REQUEST_FAILED);
+	}
+}
+
+static int toggle_pps(struct ts2phc_clock *clock, Pps_cfg *cfg, int ena)
+{
+	struct ptp_perout_request perout_request;
+	struct ptp_pin_desc desc;
+	int32_t perout_phase;
+	int32_t pulsewidth;
+	struct timespec ts;
+	int err;
+
+	if (!ena) {
+		pps_destroy(clock, cfg);
+		return 0;
+	}
+
+	memset(&desc, 0, sizeof(desc));
+
+	desc.index = cfg->pin_idx;
+	desc.func = PTP_PF_PEROUT;
+	desc.chan = cfg->channel;
+
+	if (phc_pin_setfunc(clock->clkid, &desc)) {
+		pr_err("Failed to set the pin. Continuing bravely on...");
+	}
+	if (clock_gettime(clock->clkid, &ts)) {
+		perror("clock_gettime");
+		return -1;
+	}
+	/* perout_phase = config_get_int(cfg, dev, "ts2phc.perout_phase"); */
+	perout_phase = 0;
+	memset(&perout_request, 0, sizeof(perout_request));
+	perout_request.index = cfg->channel;
+	perout_request.period.sec = 1;
+	perout_request.period.nsec = 0;
+	perout_request.flags = 0;
+	pulsewidth = cfg->pulsewidth;
+	if (pulsewidth) {
+		perout_request.flags |= PTP_PEROUT_DUTY_CYCLE;
+		perout_request.on.sec = pulsewidth / NS_PER_SEC;
+		perout_request.on.nsec = pulsewidth % NS_PER_SEC;
+	}
+	if (perout_phase != -1) {
+		perout_request.flags |= PTP_PEROUT_PHASE;
+		perout_request.phase.sec = perout_phase / NS_PER_SEC;
+		perout_request.phase.nsec = perout_phase % NS_PER_SEC;
+	} else {
+		perout_request.start.sec = ts.tv_sec + 2;
+		perout_request.start.nsec = 0;
+	}
+
+	err = ioctl(clock->fd, PTP_PEROUT_REQUEST2, &perout_request);
+	if (err) {
+		/* Backwards compatibility with old ts2phc where the pulsewidth
+		 * property would be just informative (a way to filter out
+		 * events in the case that the PPS sink can only do extts on
+		 * both rising and falling edges). There, nothing would be
+		 * configured on the PHC PPS source towards achieving that
+		 * pulsewidth. So in case the ioctl failed, try again with the
+		 * DUTY_CYCLE flag unset, in an attempt to avoid a hard
+		 * failure.
+		 */
+		perout_request.flags &= ~PTP_PEROUT_DUTY_CYCLE;
+		memset(&perout_request.rsv, 0, 4 * sizeof(unsigned int));
+		err = ioctl(clock->fd, PTP_PEROUT_REQUEST2, &perout_request);
+	}
+	if (err) {
+		pr_err(PTP_PEROUT_REQUEST_FAILED);
+		return err;
+	}
+
 	return 0;
 }
 
@@ -492,7 +605,7 @@ static int parse_edge_type(char *str)
 		return -1;
 }
 
-static int parse_args(int argc, char **argv, Extts_Cfg *cfg)
+static int parse_args_extts(int argc, char **argv, Extts_cfg *cfg)
 {
 	int opt_index;
 	int c;
@@ -561,7 +674,7 @@ int run_extts_mode(int argc, char **argv)
 {
 	struct ptp_extts_request extts;
 	struct ts2phc_clock *clock;
-	Extts_Cfg cfg;
+	Extts_cfg cfg = { 0 };
 	int chan, polarity;
 	int err = 0;
 
@@ -570,7 +683,7 @@ int run_extts_mode(int argc, char **argv)
 	cfg.pin_idx = 0;
 	cfg.polarity = PTP_RISING_EDGE;
 
-	err = parse_args(argc, argv, &cfg);
+	err = parse_args_extts(argc, argv, &cfg);
 	if (err)
 		return err;
 
@@ -585,7 +698,8 @@ int run_extts_mode(int argc, char **argv)
 
 	running = 1;
 
-	signal(SIGINT, sig_handler);
+	/* signal(SIGINT, sig_handler); */
+	handle_term_signals();
 
 	clear_fifo(clock);
 	poll_events(clock);
@@ -593,6 +707,118 @@ int run_extts_mode(int argc, char **argv)
 	err = toggle_extts(clock, &cfg, 0);
 	if (err)
 		pr_err("failed to disable extts\n");
+
+out_destroy_clock:
+	clock_destroy(clock);
+
+	return err;
+}
+
+static int parse_args_pps(int argc, char **argv, Pps_cfg *cfg)
+{
+	int opt_index;
+	int c;
+
+	if (argc == 1) {
+		pps_help();
+		return EINVAL;
+	}
+
+	struct option long_options[] = {
+		{ "iface", no_argument, NULL, 'i' },   { "pin", no_argument, NULL, 'p' },
+		{ "channel", no_argument, NULL, 'c' }, { "pulsewidth", no_argument, NULL, 'w' },
+		{ "help", no_argument, NULL, 'h' },    { NULL, 0, NULL, 0 }
+	};
+
+	while ((c = getopt_long(argc, argv, "i:p:c:w:h", long_options, &opt_index)) != -1) {
+		switch (c) {
+		case 'i':
+			cfg->iface = optarg;
+			break;
+		case 'p':
+			cfg->pin_idx = atoi(optarg);
+			break;
+		case 'c':
+			cfg->channel = atoi(optarg);
+			break;
+		case 'w':
+			cfg->pulsewidth = atoi(optarg);
+			break;
+		case 'h':
+			pps_help();
+			exit(0);
+		case '?':
+			if (optopt == 'c')
+				fprintf(stderr, "Option -%c requires an argument.\n", optopt);
+			else
+				fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
+			return EINVAL;
+		default:
+			pps_help();
+			exit(0);
+		}
+	}
+
+	if (!cfg->iface) {
+		fprintf(stderr, "No interface provided\n");
+		return EINVAL;
+	}
+	if (cfg->pin_idx < 0) {
+		fprintf(stderr, "Invalid pin index\n");
+		return EINVAL;
+	}
+	if (cfg->channel < 0) {
+		fprintf(stderr, "Invalid channel\n");
+		return EINVAL;
+	}
+	if (cfg->pulsewidth < 0 || cfg->pulsewidth > NS_PER_SEC) {
+		fprintf(stderr, "Invalid pulse width type\n");
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+int run_pps_mode(int argc, char **argv)
+{
+	struct ptp_extts_request extts;
+	struct ts2phc_clock *clock;
+	Pps_cfg cfg = { 0 };
+	int chan, polarity;
+	int err = 0;
+
+	cfg.iface = NULL;
+	cfg.channel = 0;
+	cfg.pin_idx = 0;
+	cfg.pulsewidth = 100000000;
+	/* cfg.polarity = PTP_RISING_EDGE; */
+
+	err = parse_args_pps(argc, argv, &cfg);
+	if (err)
+		return err;
+
+	clock = ts2phc_clock_add(cfg.iface);
+
+	if (!clock)
+		return -EINVAL;
+
+	err = toggle_pps(clock, &cfg, 1);
+	if (err)
+		goto out_destroy_clock;
+
+	running = 1;
+
+	/* signal(SIGINT, sig_handler); */
+	handle_term_signals();
+
+	// TODO: Use sigwait instead
+	while (running) {
+		usleep(1000 * 100);
+	}
+
+	err = toggle_pps(clock, &cfg, 0);
+	if (err)
+		pr_err("failed to disable pps\n");
 
 out_destroy_clock:
 	clock_destroy(clock);

@@ -205,6 +205,7 @@ int run_pkt_mode(int argc, char **argv);
 
 /* extts.c */
 int run_extts_mode(int argc, char **argv);
+int run_pps_mode(int argc, char **argv);
 
 /* delay.c */
 int run_delay_mode(int argc, char **argv);

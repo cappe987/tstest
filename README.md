@@ -10,10 +10,12 @@ functionality at a time. Great for debugging purposes.
 - `tstest pkt` can send and receive individual packets with timestamps.
 - `tstest delay` can perform basic peer delay measurement.
 - `tstest extts` can listen to EXTTS events from the kernel.
+- `tstest tc` can measure TC time error, latency, and more.
+- `tstest pps` can configure PPS.
 
 
 ## TODO
-- Add PPS configuration
+- Add BC Time Error support (either just receiver, or act as both GM and Slave).
 - Add E2E delay
 - Idea: `tstest check` mode that takes a config file of actions it should check
   (send, receive, verify values). Should be run with a looped cable, else it

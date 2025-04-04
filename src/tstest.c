@@ -21,6 +21,7 @@ int tstest_help()
 	fprintf(stderr, "Modes:\n\
 	pkt - Send individual PTP packets\n\
 	extts - Listen to EXTTS events\n\
+	pps - Configure PPS\n\
 	delay - Perform path delay measurements\n\
 	tc - Test Transparent Clock correction\n\
 	version - Show version\n");
@@ -39,6 +40,8 @@ int main(int argc, char **argv)
 		return run_pkt_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "extts") == 0)
 		return run_extts_mode(argc - 1, &argv[1]);
+	else if (strcmp(argv[1], "pps") == 0)
+		return run_pps_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "delay") == 0)
 		return run_delay_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "check") == 0)

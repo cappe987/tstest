@@ -78,7 +78,8 @@ struct port {
 };
 
 int is_running();
-void sig_handler(int sig);
+/* void sig_handler(int sig); */
+int handle_term_signals(void);
 
 int msg_get_type(union Message *msg);
 int msg_is_onestep(union Message *msg);

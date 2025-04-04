@@ -428,7 +428,8 @@ int run_tc_mode(int argc, char **argv)
 	if (err)
 		return err;
 
-	signal(SIGINT, sig_handler);
+	/* signal(SIGINT, sig_handler); */
+	handle_term_signals();
 
 	if (!cfg.count)
 		cfg.nonstop_flag = 1;
