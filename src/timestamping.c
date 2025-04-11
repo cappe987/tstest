@@ -6,6 +6,7 @@
 #include <linux/filter.h>
 #include <sys/ioctl.h>
 #include <pthread.h>
+#include <time.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdio.h>
@@ -579,9 +580,29 @@ no_socket:
 	return -1;
 }
 
-void print_ts(char *text, int64_t ns)
+static void print_ts_raw(char *text, int64_t ns)
 {
 	printf("%s%" PRId64 ".%09" PRId64 "\n", text, ns / NS_PER_SEC, ns % NS_PER_SEC);
+}
+
+static void print_ts_readable(char *text, int64_t ns)
+{
+	int64_t nano = ns % NS_PER_SEC;
+	time_t sec = ns / NS_PER_SEC;
+	char out_str[200];
+	struct tm time;
+
+	gmtime_r(&sec, &time);
+	strftime(out_str, 200, "%Y-%m-%d %T", &time);
+	printf("%s%s %09" PRId64 "\n", text, out_str, nano);
+}
+
+void print_ts(char *text, int64_t ns, int human_readable)
+{
+	if (human_readable)
+		print_ts_readable(text, ns);
+	else
+		print_ts_raw(text, ns);
 }
 
 void DBG_print_ts(char *text, int64_t ns)

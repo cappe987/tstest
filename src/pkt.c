@@ -63,6 +63,7 @@ Options:\n\
 	-l <0|1>. 0: Never fetch timestamp. 1: Always fetch timestamp (even for types that might not have)\n\
         -d Enable debug output\n\
 	-v <2|2.1> PTP version of the packet\n\
+        -H Human-readable timestamp output\n\
         -h help\n\
 	--transportSpecific <value>. Set value for the transportSpecific field\n\
 	--twoStepFlag <0|1>. Force if twoStepFlag should be set or not. Default is automatic\n\
@@ -196,7 +197,8 @@ static int send_print(struct pkt_cfg *cfg, int sock, int type, struct hw_timesta
 	int err;
 
 	err = build_and_send(cfg, sock, type, hwts, &ns);
-	print_ts("TS: ", ns + cfg->egressLatency);
+	ns += cfg->egressLatency;
+	print_ts("TS: ", ns, cfg->human_readable);
 	return err;
 }
 
@@ -425,7 +427,8 @@ static void rx_mode(struct pkt_cfg *cfg, int sock, struct hw_timestamp *hwts)
 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR))
 			continue;
 		printf("Type: %s. ", ptp_type2str(rx_msg->hdr.tsmt & 0xF));
-		print_ts("TS: ", hwts->ts.ns - cfg->ingressLatency);
+		hwts->ts.ns -= cfg->ingressLatency;
+		print_ts("TS: ", hwts->ts.ns, cfg->human_readable);
 	}
 }
 
@@ -454,7 +457,7 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "StrapdfD:l:hoOi:m:c:s:T:v:", long_options, NULL)) !=
+	while ((c = getopt_long(argc, argv, "StrapdfD:l:HhoOi:m:c:s:T:v:", long_options, NULL)) !=
 	       -1) {
 		switch (c) {
 		case 1:
@@ -542,6 +545,9 @@ static int pkt_parse_opt(int argc, char **argv, struct pkt_cfg *cfg)
 			break;
 		case 'd':
 			debugen = 1;
+			break;
+		case 'H':
+			cfg->human_readable = 1;
 			break;
 		case 'h':
 			pkt_help();

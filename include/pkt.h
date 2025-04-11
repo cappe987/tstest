@@ -18,6 +18,7 @@ struct pkt_cfg {
 	//int so_timestamping_flags;
 	int transportSpecific;
 	int twoStepFlag_set;
+	int human_readable;
 	int ingressLatency;
 	int egressLatency;
 	int header_offset;
