@@ -43,10 +43,10 @@ Options:\n\
         -v Set PTP version number\n\
         -d Enable debug output\n\
         -h Print this help text\n\
-        --delay_filter <moving_median|moving_average>. Default: moving_median.\n\
-        --1.5step Server only. Use 1.5-step transmission\n\
+        --1.5step Server only. Use 1.5-step transmission (auto-follow-up)\n\
         \n");
 }
+/* --delay_filter <moving_median|moving_average>. Default: moving_median.\n\ */
 
 void increment_seq(struct ptp_header *hdr)
 {
