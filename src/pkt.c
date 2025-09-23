@@ -63,10 +63,12 @@ Options:\n\
 	-l <0|1>. 0: Never fetch timestamp. 1: Always fetch timestamp (even for types that might not have)\n\
         -d Enable debug output\n\
 	-v <2|2.1> PTP version of the packet\n\
+	-f Auto-follow-up. When sending a Sync/PDelayResp it immediately sends an empty follow-up message.\n\
         -H Human-readable timestamp output\n\
         -h help\n\
 	--transportSpecific <value>. Set value for the transportSpecific field\n\
 	--twoStepFlag <0|1>. Force if twoStepFlag should be set or not. Default is automatic\n\
+	--header_offset <bytes>. Configure the PTP header offset (default: 0)\n\
 	--ingressLatency <ns>. \n\
 	--egressLatency <ns>. \n\
         \n");
@@ -206,7 +208,6 @@ static int send_auto_fup(struct pkt_cfg *cfg, int sock, int type, struct hw_time
 {
 	struct ptp_header hdr;
 	union Message msg;
-	int ptp_type;
 	int err;
 
 	if (type == SYNC)
@@ -216,7 +217,7 @@ static int send_auto_fup(struct pkt_cfg *cfg, int sock, int type, struct hw_time
 	else
 		return -EINVAL;
 
-	return send_print(cfg, sock, ptp_type, hwts);
+	return send_print(cfg, sock, type, hwts);
 }
 
 int sk_get_error(int fd)
