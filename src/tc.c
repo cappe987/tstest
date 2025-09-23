@@ -174,7 +174,7 @@ static int pdelay_resp(Port *port, union Message *req, int64_t ns)
 	if (port->do_record)
 		record_add_tx_msg(&port->record, &resp, NULL);
 	if (port->cfg.tstype != TS_P2P1STEP) {
-		resp_fup = build_msg(&port->cfg, FOLLOW_UP);
+		resp_fup = build_msg(&port->cfg, PDELAY_RESP_FUP);
 		ptp_set_originTimestamp(&resp_fup, tx_ts);
 		ptp_set_seqId(&resp_fup.hdr, ptp_get_seqId(&req->hdr));
 		ptp_set_requestingPortIdentity(&resp_fup, &req->hdr.sourcePortIdentity);
