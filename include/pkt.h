@@ -11,6 +11,7 @@
 #include "timestamping.h"
 #include "tstest.h"
 #include "stats.h"
+#include <stdint.h>
 
 #define SEQUENCE_MAX 100
 
@@ -76,6 +77,19 @@ struct port {
 	PortRecord record;
 	int sync_count;
 	int delay_req_count;
+	int64_t last_sync_t2t1;
+	/* int has_sync; */
+	/* int has_delay; */
+	int64_t current_delay;
+	int64_t current_t4;
+	/* Saved indices */
+	int sync;
+	int fup;
+	int dreq;
+	int dresp;
+	int pdreq;
+	int pdresp;
+	int pdresp_fup;
 };
 
 int is_running();
@@ -88,6 +102,8 @@ union Message build_msg(struct pkt_cfg *cfg, int type);
 union Message build_msg_with_ts(struct pkt_cfg *cfg, int type, int64_t ts, int64_t correction);
 int send_msg(struct pkt_cfg *cfg, int sock, union Message *msg, int64_t *ns);
 int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts, int64_t *ns);
+void send_pkt_with_ts(Port *port, int ptp_type, int64_t ts, int64_t correction);
+void send_pkt(Port *port, int ptp_type);
 
 int port_get_socket(Port *port, int ptp_type);
 int port_clear_timer(Port *port, int fd_index);
@@ -98,5 +114,9 @@ int port_init(Port *port, struct pkt_cfg cfg, char *portname, event_t ev_handler
 	      bool open_evsock, bool open_gensock);
 int port_free(Port *port);
 int port_clear_record(Port *port);
+
+MessageRecord *port_get_saved(Port *p, int type);
+/* MessageRecord *port_save_last_added(Port *p); */
+void port_save_last_added(Port *p);
 
 #endif /* __TSTEST_PKT_H__ */

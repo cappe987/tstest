@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 
+#include "timestamping.h"
+#include "tstest.h"
 #include <inttypes.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -88,6 +90,94 @@ void record_free(PortRecord *pr)
 	pr->count = 0;
 	pr->size = 0;
 	pr->msgs = NULL;
+}
+
+MessageRecord *record_get_latest(PortRecord *pr, int type, uint16_t *seqid)
+{
+	int i;
+
+	for (i = pr->count - 1; i >= 0; i--) {
+		if (pr->msgs[i].ptp_type == type) {
+			if (!seqid)
+				return &pr->msgs[i];
+			else if (pr->msgs[i].seqid == *seqid)
+				return &pr->msgs[i];
+		}
+	}
+	return NULL;
+}
+
+MessageRecord *record_get_last_added(PortRecord *pr)
+{
+	if (pr->count == 0)
+		return NULL;
+	return &pr->msgs[pr->count - 1];
+}
+
+MessageRecord *port_get_saved(Port *p, int type)
+{
+	int idx = -1;
+
+	switch (type) {
+	case SYNC:
+		idx = p->sync >= 0 ? p->sync : -1;
+		break;
+	case FOLLOW_UP:
+		idx = p->fup >= 0 ? p->fup : -1;
+		break;
+	case DELAY_REQ:
+		idx = p->dreq >= 0 ? p->dreq : -1;
+		break;
+	case DELAY_RESP:
+		idx = p->dresp >= 0 ? p->dresp : -1;
+		break;
+	case PDELAY_REQ:
+		idx = p->pdreq >= 0 ? p->pdreq : -1;
+		break;
+	case PDELAY_RESP:
+		idx = p->pdresp >= 0 ? p->pdresp : -1;
+		break;
+	case PDELAY_RESP_FUP:
+		idx = p->pdresp_fup >= 0 ? p->pdresp_fup : -1;
+		break;
+	default:
+		return NULL;
+	}
+	if (idx == -1)
+		return NULL;
+	return &p->record.msgs[idx];
+}
+
+void port_save_last_added(Port *p)
+{
+	MessageRecord *last = record_get_last_added(&p->record);
+	int idx = p->record.count - 1;
+
+	switch (last->ptp_type) {
+	case SYNC:
+		p->sync = idx;
+		break;
+	case FOLLOW_UP:
+		p->fup = idx;
+		break;
+	case DELAY_REQ:
+		p->dreq = idx;
+		break;
+	case DELAY_RESP:
+		p->dresp = idx;
+		break;
+	case PDELAY_REQ:
+		p->pdreq = idx;
+		break;
+	case PDELAY_RESP:
+		p->pdresp = idx;
+		break;
+	case PDELAY_RESP_FUP:
+		p->pdresp_fup = idx;
+		break;
+	default:
+		break;
+	}
 }
 
 int record_add_tx_msg(PortRecord *pr, union Message *msg, int64_t *tx_ts)
@@ -180,7 +270,7 @@ static uint8_t get_primary_type(MessageRecord *m)
 	if (m->ptp_type == PDELAY_REQ || m->ptp_type == PDELAY_RESP ||
 	    m->ptp_type == PDELAY_RESP_FUP)
 		return PDELAY_REQ;
-	ERR("Unexpected PTP message type %d encountered\n", m->ptp_type);
+	/* ERR("Unexpected PTP message type %d encountered\n", m->ptp_type); */
 	return m->ptp_type;
 }
 
@@ -274,48 +364,80 @@ static int64_t tc_sync_get_tx_ts(PacketData *sync)
 		return ptp_get_originTimestamp(&sync->snd->msg);
 }
 
-static int64_t tc_get_oneway_error(PacketData *pkt)
+/* Works for BC too */
+static int64_t tc_get_oneway_error(PacketData *pkt, bool measured_link_delay)
 {
+	int64_t val;
+
 	if (pkt->primary_type == SYNC) {
 		if (msg_is_onestep(&pkt->fst->msg))
-			return pkt->fst->rx_ts - pkt->fst->tx_ts -
-			       ptp_get_correctionField(&pkt->fst->msg);
+			/* val = pkt->fst->rx_ts - pkt->fst->tx_ts - */
+			/* ptp_get_correctionField(&pkt->fst->msg); */
+			val = pkt->fst->tx_ts - pkt->fst->rx_ts -
+			      ptp_get_correctionField(&pkt->fst->msg);
 		else
-			return pkt->fst->rx_ts - ptp_get_originTimestamp(&pkt->snd->msg) -
-			       ptp_get_correctionField(&pkt->fst->msg) -
-			       ptp_get_correctionField(&pkt->snd->msg);
+			/* val = pkt->fst->rx_ts - ptp_get_originTimestamp(&pkt->snd->msg) - */
+			/*       ptp_get_correctionField(&pkt->fst->msg) - */
+			/*       ptp_get_correctionField(&pkt->snd->msg); */
+			val = ptp_get_originTimestamp(&pkt->snd->msg) - pkt->fst->rx_ts -
+			      ptp_get_correctionField(&pkt->fst->msg) -
+			      ptp_get_correctionField(&pkt->snd->msg);
+		if (measured_link_delay)
+			return val - pkt->fst->current_delay;
+		else
+			return val;
 	} else if (pkt->primary_type == DELAY_REQ) {
-		return ptp_get_originTimestamp(&pkt->snd->msg) - pkt->fst->tx_ts -
-		       ptp_get_correctionField(&pkt->fst->msg) -
-		       ptp_get_correctionField(&pkt->snd->msg);
+		val = ptp_get_originTimestamp(&pkt->snd->msg) - pkt->fst->tx_ts -
+		      ptp_get_correctionField(&pkt->fst->msg) -
+		      ptp_get_correctionField(&pkt->snd->msg);
+		if (measured_link_delay)
+			return val - pkt->fst->current_delay;
+		else
+			return val;
 	}
 	ERR("Unhandled case in %s", __func__);
 	return INT64_MIN;
 }
 
-static int tc_get_twoway_error(Stats *s, PacketData *sync)
+static int tc_get_twoway_error(Stats *s, PacketData *sync, bool use_t4, bool measured_link_delay)
 {
 	int64_t timeerror, timeerror_delay;
 	PacketData *delay;
-	timeerror = tc_get_oneway_error(sync);
+
+	timeerror = tc_get_oneway_error(sync, false);
+	if (measured_link_delay)
+		return timeerror - sync->fst->current_delay;
+	else if (use_t4)
+		return (timeerror + sync->fst->current_t4) / 2;
+
 	delay = stats_get_data(s, DELAY_REQ, sync->seqid);
 	if (!delay) {
 		ERR("Missing Delay for Sync with SeqID %" PRId16, sync->seqid);
 		return 0;
 	}
-	timeerror_delay = tc_get_oneway_error(delay);
+	timeerror_delay = tc_get_oneway_error(delay, false);
 	return (timeerror + timeerror_delay) / 2;
 }
 
-static int64_t tc_get_time_error(Stats *s, PacketData *pkt, bool twoway)
+static int64_t tc_get_time_error(Stats *s, PacketData *pkt, bool twoway, bool use_t4,
+				 bool measured_link_delay)
 {
 	if (twoway)
-		return tc_get_twoway_error(s, pkt);
+		return tc_get_twoway_error(s, pkt, use_t4, measured_link_delay);
 	else
-		return tc_get_oneway_error(pkt);
+		return tc_get_oneway_error(pkt, measured_link_delay);
 }
 
-static StatsResult stats_get_time_error(Stats *s, int ptp_type)
+/* 
+ * Measured link delay will subtract the current delay from the
+ * calculate offset.
+ * 
+ * Use_t4 will calculate twoway time error by doing (T1TE + T4TE) / 2.
+ *
+ * These two options do not work for `tstest tc` right now.
+*/
+static StatsResult stats_get_time_error(Stats *s, int ptp_type, bool use_t4,
+					bool measured_link_delay)
 {
 	StatsResult r = { 0 };
 	bool twoway = false;
@@ -330,7 +452,7 @@ static StatsResult stats_get_time_error(Stats *s, int ptp_type)
 
 	PacketData *pkt;
 	FOREACH_PKT_TYPE(s, ptp_type, pkt) {
-		timeerror = tc_get_time_error(s, pkt, twoway);
+		timeerror = tc_get_time_error(s, pkt, twoway, use_t4, measured_link_delay);
 		if (timeerror > r.max || count == 0)
 			r.max = timeerror;
 		if (timeerror < r.min || count == 0)
@@ -397,6 +519,64 @@ StatsResult stats_get_sync_pdv(Stats *s)
 	return r;
 }
 
+void stats_show_te(Stats *s, char *p1, int count_left, bool measured_link_delay)
+{
+	StatsResult sync_time_error;
+	StatsResult delay_time_error;
+	StatsResult twoway_time_error;
+
+	if (s->count == 0) {
+		printf("No measurements\n");
+		return;
+	}
+
+	if (count_left)
+		printf("%d measurements (exited early, expected %d)\n", s->count,
+		       s->count + count_left);
+	else
+		printf("%d measurements\n", s->count);
+
+	printf("%s\n", p1);
+
+	if (s->dm == DM_E2E) {
+		sync_time_error = stats_get_time_error(s, SYNC, false, false);
+		printf("--- T1 Time Error ---\n");
+		printf("Mean: %" PRId64 "\n", sync_time_error.mean);
+		printf("Max : %" PRId64 "\n", sync_time_error.max);
+		printf("Min : %" PRId64 "\n", sync_time_error.min);
+		delay_time_error = stats_get_time_error(s, DELAY_REQ, false, false);
+		printf("--- T4 Time Error ---\n");
+		printf("Mean: %" PRId64 "\n", delay_time_error.mean);
+		printf("Max : %" PRId64 "\n", delay_time_error.max);
+		printf("Min : %" PRId64 "\n", delay_time_error.min);
+		/* 2way will not work like before since message
+		 * association for was previously based on seqid
+		 * matching up against time. Need to use ->current_delay.
+		 * Passing 'true' should solve that.
+		 */
+		twoway_time_error = stats_get_time_error(s, -1, true, false);
+		printf("--- 2WAY_TIME_ERROR ---\n");
+		printf("Mean: %" PRId64 "\n", twoway_time_error.mean);
+		printf("Max : %" PRId64 "\n", twoway_time_error.max);
+		printf("Min : %" PRId64 "\n", twoway_time_error.min);
+	} else {
+		sync_time_error = stats_get_time_error(s, SYNC, false, measured_link_delay);
+		if (measured_link_delay)
+			printf("--- Time Error ---\n");
+		else
+			printf("--- Time Error ---\n");
+		printf("Mean: %" PRId64 "\n", sync_time_error.mean);
+		printf("Max : %" PRId64 "\n", sync_time_error.max);
+		printf("Min : %" PRId64 "\n", sync_time_error.min);
+		/* delay_time_error = stats_get_time_error(s, DELAY_REQ, measured_link_delay); */
+
+		/* What should output look like for PDELAY? 
+		 * Measured Link Delay
+		 * How to calculate when not using measured_link_delay?
+		 */
+	}
+}
+
 void stats_show(Stats *s, char *p1, char *p2, int count_left)
 {
 	if (s->count == 0) {
@@ -417,9 +597,9 @@ void stats_show(Stats *s, char *p1, char *p2, int count_left)
 	/* 	} */
 	/* } */
 
-	StatsResult sync_time_error = stats_get_time_error(s, SYNC);
-	StatsResult delay_time_error = stats_get_time_error(s, DELAY_REQ);
-	StatsResult twoway_time_error = stats_get_time_error(s, -1);
+	StatsResult sync_time_error = stats_get_time_error(s, SYNC, false, false);
+	StatsResult delay_time_error = stats_get_time_error(s, DELAY_REQ, false, false);
+	StatsResult twoway_time_error = stats_get_time_error(s, -1, false, false);
 	StatsResult sync_latency = stats_get_sync_latency(s);
 	StatsResult sync_pdv = stats_get_sync_pdv(s);
 
@@ -496,7 +676,7 @@ void stats_output_measurements(Stats *s, char *path)
 	fprintf(fp, "SYNC_TIME_ERROR\n");
 	PacketData *pkt;
 	FOREACH_PKT_TYPE(s, SYNC, pkt) {
-		val = tc_get_time_error(s, pkt, false);
+		val = tc_get_time_error(s, pkt, false, false, false);
 		write_val_to_file(s, fp, pkt, val, base_time);
 	}
 	fprintf(fp, "\n");

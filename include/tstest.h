@@ -216,6 +216,9 @@ int run_check_mode(int argc, char **argv);
 /* tc.c */
 int run_tc_mode(int argc, char **argv);
 
+/* te.c */
+int run_te_mode(int argc, char **argv);
+
 /* ptp_message.c */
 const char *ptp_default_clockid();
 int str2ptp_type(const char *str);

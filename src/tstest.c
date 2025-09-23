@@ -48,6 +48,8 @@ int main(int argc, char **argv)
 		return run_check_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "tc") == 0)
 		return run_tc_mode(argc - 1, &argv[1]);
+	else if (strcmp(argv[1], "te") == 0)
+		return run_te_mode(argc - 1, &argv[1]);
 	else if (strcmp(argv[1], "version") == 0)
 		return tstest_version();
 	else

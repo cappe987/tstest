@@ -25,6 +25,8 @@ typedef struct {
 	/* TODO: Extract correctionField */
 	/* int64_t correction; */
 	union Message msg;
+	int64_t current_delay;
+	int64_t current_t4;
 } MessageRecord;
 
 typedef struct {
@@ -70,10 +72,13 @@ void stats_free(Stats *s);
 void stats_show(Stats *s, char *p1, char *p2, int count_left);
 void stats_output_measurements(Stats *s, char *path);
 void stats_collect_port_record(PortRecord *p, Stats *s);
+void stats_show_te(Stats *s, char *p1, int count_left, bool measured_link_delay);
 
 int record_init(PortRecord *pr, char *portname, int size);
 int record_add_tx_msg(PortRecord *pr, union Message *msg, int64_t *tx_ts);
 int record_add_rx_msg(PortRecord *pr, union Message *msg, int64_t *rx_ts);
 void record_free(PortRecord *pr);
+MessageRecord *record_get_latest(PortRecord *pr, int type, uint16_t *seqid);
+MessageRecord *record_get_last_added(PortRecord *pr);
 
 #endif /* __TSTEST_STATS_H__ */

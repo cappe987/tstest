@@ -192,6 +192,37 @@ int build_and_send(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp 
 	return send_msg(cfg, sock, &tx_msg, ns);
 }
 
+void send_pkt_with_ts(Port *port, int ptp_type, int64_t ts, int64_t correction)
+{
+	struct hw_timestamp hwts;
+	union Message msg;
+	int64_t tx_ts;
+	int i = 0;
+
+	hwts.type = port->cfg.tstype;
+	hwts.ts.ns = 0;
+
+	msg = build_msg_with_ts(&port->cfg, ptp_type, 0, 0);
+	send_msg(&port->cfg, port_get_socket(port, ptp_type), &msg, &tx_ts);
+	if (tx_ts > 0)
+		tx_ts += port->cfg.egressLatency;
+	if (port->do_record)
+		record_add_tx_msg(&port->record, &msg, &tx_ts);
+	if (ptp_type == SYNC && port->cfg.tstype != TS_ONESTEP && port->cfg.tstype != TS_P2P1STEP) {
+		msg = build_msg(&port->cfg, FOLLOW_UP);
+		ptp_set_originTimestamp(&msg, tx_ts);
+		send_msg(&port->cfg, port->g_sock, &msg, &tx_ts);
+		if (port->do_record)
+			record_add_tx_msg(&port->record, &msg, NULL);
+	}
+	port->cfg.seq++;
+}
+
+void send_pkt(Port *port, int ptp_type)
+{
+	send_pkt_with_ts(port, ptp_type, 0, 0);
+}
+
 static int send_print(struct pkt_cfg *cfg, int sock, int type, struct hw_timestamp *hwts)
 {
 	enum transport_event event_type;
@@ -360,6 +391,14 @@ int port_init(Port *port, struct pkt_cfg cfg, char *portname, event_t ev_handler
 		}
 		fd_init(port->pollfd, fd_index, fd);
 	}
+
+	port->sync = -1;
+	port->fup = -1;
+	port->dreq = -1;
+	port->dresp = -1;
+	port->pdreq = -1;
+	port->pdresp = -1;
+	port->pdresp_fup = -1;
 
 	return 0;
 

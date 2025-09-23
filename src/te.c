@@ -1,69 +1,31 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 
+#include "timestamping.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
 #include <errno.h>
 #include <unistd.h>
-#include <signal.h>
 
 #include "liblink.h"
 #include "pkt.h"
 #include "stats.h"
 #include "tstest.h"
 
-/* Measure the one-way inaccuracy through a TC. Runs on two ports that
- * are either synchronized or use the same PHC. The inaccuracies will
- * be the cable delay + any uncompensated rx/tx latencies.
- *
- * The host should set --ingressLatency and --egressLatency. If the rx/tx
- * latencies aren't exactly known they can be set to the same value as
- * they will cancel each other out.
- *
- * The value can be found by measuring the inaccuracy (minus the cable
- * delay) and dividing by 2, with a looped cable. This is the same
- * process as measuring the peer delay.
- *
- * ingressLatency = egressLatency = peer_delay - cable_delay
- *
- * Wiretime (https://github.com/cappe987/wiretime) could also be used
- * for this purpose if adapted to handle correction time and
- * ingress/egress latency.
- */
+bool measured_link_delay = true;
 
-/* TODO:
- * - Support twostep mode? To test offloaded 2-step TC
- * - Add support to reply to pdelay messages for P2P TC?
- */
-
-#ifndef SO_TIMESTAMPING
-#define SO_TIMESTAMPING 37
-#define SCM_TIMESTAMPING SO_TIMESTAMPING
-#endif
-
-#ifndef SO_TIMESTAMPNS
-#define SO_TIMESTAMPNS 35
-#endif
-
-#ifndef SIOCGSTAMPNS
-#define SIOCGSTAMPNS 0x8907
-#endif
-
-#ifndef SIOCSHWTSTAMP
-#define SIOCSHWTSTAMP 0x89b0
-#endif
-
-void tc_help()
+void te_help()
 {
-	fprintf(stderr, "\n--- TSTest Transparent Clock ---\n\n");
+	fprintf(stderr, "\n--- Time Error Measurement ---\n\n");
 	fprintf(stderr,
-		"Sends packets through a TC, back to the same device to measure TC compensation\n\n\
+		"Measure slave side of a TC/BC. Expects a GM to be running on the same PHC.\n\n\
 Usage:\n\
-        tstest tc [options]\n\n\
+        tstest te [options]\n\n\
 Options:\n\
-        -i <interface>. Must be used twice. Port PHCs must be synchronized or be the same\n\
-        -I <interval ms>. Time between packets. Default 200 ms\n\
+        -i <interface>. Port PHC must be synchronized or be the same as GM\n\
+        -I <interval ms>. Time between packets. Default 1000 ms\n\
         -D <domain>. PTP domain number\n\
         -c <frame counts>. Default: 10. If 0, send until interrupted\n\
         -d Enable debug output\n\
@@ -72,56 +34,11 @@ Options:\n\
 	--ingressLatency <ns>. Ingress latency of this equipment\n\
 	--egressLatency <ns>. Egress latency of this equipment\n\
 	--transportSpecific <value>. Set value for the transportSpecific field\n\
+        \n\
+        Note:\n\
+        Negative T1 Time Error indicates positive TX latency\n\
+        Positive T4 Time Error indicates positive RX latency\n\
         \n");
-}
-
-/* static int receive(struct pkt_cfg *cfg, int p2_sock, PortRecord *pr) */
-/* { */
-/* 	struct hw_timestamp hwts; */
-/* 	unsigned char buf[1600]; */
-/* 	union Message *rx_msg; */
-/* 	int cnt; */
-
-/* 	hwts.type = cfg->tstype; */
-/* 	hwts.ts.ns = 0; */
-
-/* 	rx_msg = (union Message *)buf; */
-
-/* 	do { */
-/* 		cnt = sk_receive(p2_sock, rx_msg, 1600, NULL, &hwts, 0, DEFAULT_TX_TIMEOUT); */
-/* 		/\* TODO: Handle receiving other packet types here */
-/* 		 * (e.g. pdelays). We only want to consider Syncs */
-/* 		 * Handle onestep syncs. */
-/* 		 *\/ */
-/* 		if (cnt < 0 && (errno == EAGAIN || errno == EINTR)) */
-/* 			continue; */
-/* 		if (hwts.ts.ns > 0) */
-/* 			hwts.ts.ns -= cfg->ingressLatency; */
-/* 		record_add_rx_msg(pr, rx_msg, &hwts.ts.ns); */
-/* 		return 0; */
-/* 	} while (is_running()); */
-
-/* 	return 1; */
-/* } */
-
-static int delay_resp(Port *port, union Message *req, int64_t ns)
-{
-	int64_t correction = ptp_get_correctionField(req);
-	struct hw_timestamp hwts;
-	union Message resp;
-	int64_t tx_ts;
-	int i = 0;
-
-	hwts.type = port->cfg.tstype;
-	hwts.ts.ns = 0;
-
-	resp = build_msg_with_ts(&port->cfg, DELAY_RESP, ns, correction);
-	ptp_set_seqId(&resp.hdr, ptp_get_seqId(&req->hdr));
-	ptp_set_requestingPortIdentity(&resp, &req->hdr.sourcePortIdentity);
-	send_msg(&port->cfg, port->g_sock, &resp, &tx_ts);
-	if (port->do_record)
-		record_add_tx_msg(&port->record, &resp, NULL);
-	return 0;
 }
 
 static int pdelay_resp(Port *port, union Message *req, int64_t ns)
@@ -154,7 +71,124 @@ static int pdelay_resp(Port *port, union Message *req, int64_t ns)
 	return 0;
 }
 
-int tc_event(Port *port, int fd_index)
+static void print_offset(Port *port)
+{
+	int64_t offset;
+
+	offset = port->last_sync_t2t1 - port->current_delay;
+	printf("master offset %10" PRId64 " path delay %9" PRId64 "\n", offset,
+	       port->current_delay);
+}
+
+static int handle_delay(Port *p, int type)
+{
+	MessageRecord *sync;
+	MessageRecord *fup;
+	MessageRecord *dreq;
+	MessageRecord *dresp;
+	MessageRecord *pdreq;
+	MessageRecord *pdresp;
+	MessageRecord *pdresp_fup;
+	int64_t t1;
+	int64_t t2;
+	int64_t t3;
+	int64_t t4;
+	int64_t t4ct3;
+	int64_t delay;
+	uint16_t seqid;
+
+	switch (type) {
+	case SYNC:
+		sync = port_get_saved(p, SYNC);
+		sync->current_delay = p->current_delay;
+		sync->current_t4 = p->current_t4;
+		if (msg_is_onestep(&sync->msg)) {
+			t1 = sync->tx_ts;
+			t2 = sync->rx_ts;
+			p->last_sync_t2t1 = t2 - t1 - ptp_get_correctionField(&sync->msg);
+			DEBUG("T1: %" PRId64 "\n", p->last_sync_t2t1);
+			p->sync = -1;
+			print_offset(p);
+			return 1;
+		}
+		/* fallthrough */
+	case FOLLOW_UP:
+		sync = port_get_saved(p, SYNC);
+		fup = port_get_saved(p, FOLLOW_UP);
+		if (!fup)
+			return 0;
+		if (sync->seqid != fup->seqid)
+			return 0;
+		t1 = ptp_get_originTimestamp(&fup->msg);
+		t2 = sync->rx_ts;
+		p->last_sync_t2t1 = t2 - t1 - ptp_get_correctionField(&sync->msg) -
+				    ptp_get_correctionField(&fup->msg);
+		DEBUG("T1: %" PRId64 "\n", p->last_sync_t2t1);
+		p->sync = -1;
+		p->fup = -1;
+		print_offset(p);
+		return 1;
+	case DELAY_RESP:
+		dreq = port_get_saved(p, DELAY_REQ);
+		dresp = port_get_saved(p, DELAY_RESP);
+		if (!dreq || !dresp)
+			return 0;
+		if (dreq->seqid != dresp->seqid)
+			return 0;
+		t3 = dreq->tx_ts;
+		t4 = ptp_get_originTimestamp(&dresp->msg);
+		t4ct3 = t4 - t3 - ptp_get_correctionField(&dresp->msg);
+		DEBUG("T4: %" PRId64 "\n", t4ct3);
+		// TODO: is this correct?
+		p->current_delay = (p->last_sync_t2t1 + t4ct3) / 2;
+		p->current_t4 = t4ct3;
+		p->dreq = -1;
+		p->dresp = -1;
+		return 1;
+	case PDELAY_RESP:
+		pdreq = port_get_saved(p, PDELAY_REQ);
+		pdresp = port_get_saved(p, PDELAY_RESP);
+		if (!pdreq || !pdresp)
+			return 0;
+		if (pdreq->seqid != pdresp->seqid)
+			return 0;
+		if (msg_is_onestep(&pdresp->msg)) {
+			t1 = pdreq->tx_ts;
+			t4 = pdresp->rx_ts;
+			p->current_delay = (t4 - t1 - ptp_get_correctionField(&pdresp->msg)) / 2;
+			DEBUG("Pdelay: %" PRId64 "\n", p->current_delay);
+			p->pdreq = -1;
+			p->pdresp = -1;
+			p->pdresp_fup = -1;
+		}
+		/* fallthrough */
+	case PDELAY_RESP_FUP:
+		pdreq = port_get_saved(p, PDELAY_REQ);
+		pdresp = port_get_saved(p, PDELAY_RESP);
+		pdresp_fup = port_get_saved(p, PDELAY_RESP_FUP);
+		if (!pdreq || !pdresp || !pdresp_fup)
+			return 0;
+		if (pdreq->seqid != pdresp->seqid || pdresp->seqid != pdresp_fup->seqid)
+			return 0;
+		t1 = pdreq->tx_ts;
+		t2 = ptp_get_originTimestamp(&pdresp->msg);
+		t3 = ptp_get_originTimestamp(&pdresp_fup->msg);
+		t4 = pdresp->rx_ts;
+		p->current_delay = ((t4 - t1) - (t3 - t2) - ptp_get_correctionField(&pdresp->msg) -
+				    ptp_get_correctionField(&pdresp_fup->msg)) /
+				   2;
+		DEBUG("Pdelay: %" PRId64 "\n", p->current_delay);
+		p->pdreq = -1;
+		p->pdresp = -1;
+		p->pdresp_fup = -1;
+		return 1;
+	default:
+		return 0;
+	}
+	return 0;
+}
+
+int te_event(Port *port, int fd_index)
 {
 	struct hw_timestamp hwts = { 0 };
 	unsigned char dummybuf[8];
@@ -178,11 +212,19 @@ int tc_event(Port *port, int fd_index)
 		if (port->do_record)
 			record_add_rx_msg(&port->record, &msg, &ns);
 		switch (msg_get_type(&msg)) {
+		case SYNC:
+			port_save_last_added(port);
+			handle_delay(port, SYNC);
+			break;
 		case DELAY_REQ:
-			delay_resp(port, &msg, ns);
+			ERR("Unexpected DELAY_REQ received\n");
 			break;
 		case PDELAY_REQ:
 			pdelay_resp(port, &msg, ns);
+			break;
+		case PDELAY_RESP:
+			port_save_last_added(port);
+			handle_delay(port, PDELAY_RESP);
 			break;
 		default:
 			break;
@@ -194,28 +236,36 @@ int tc_event(Port *port, int fd_index)
 			goto out;
 		if (port->do_record)
 			record_add_rx_msg(&port->record, &msg, NULL);
-		break;
-	case FD_SYNC_TX_TIMER:
-		read(port->pollfd[fd_index].fd, dummybuf, 8);
-		send_pkt(port, SYNC);
-		/* if (!port->cfg.nonstop_flag) */
-		/* port->cfg.count--; */
-		/* if (!debugen) { */
-		/* 	printf("."); */
-		/* 	fflush(stdout); */
-		/* } */
-		port->sync_count--;
-		if (port->sync_count == 0 && !port->cfg.nonstop_flag) {
-			err = -EINTR;
-			port_clear_timer(port, FD_SYNC_TX_TIMER);
+		switch (msg_get_type(&msg)) {
+		case FOLLOW_UP:
+			port_save_last_added(port);
+			handle_delay(port, FOLLOW_UP);
+			break;
+		case DELAY_RESP:
+			port_save_last_added(port);
+			handle_delay(port, DELAY_RESP);
+			break;
+		case PDELAY_RESP_FUP:
+			port_save_last_added(port);
+			handle_delay(port, PDELAY_RESP_FUP);
+			break;
+		default:
+			break;
 		}
 		break;
 	case FD_DELAY_TIMER:
 		read(port->pollfd[fd_index].fd, dummybuf, 8);
-		if (port->cfg.dm == DM_E2E)
+		if (port->cfg.dm == DM_E2E) {
 			send_pkt(port, DELAY_REQ);
-		else
+			port_save_last_added(port);
+			port->dresp = -1;
+		} else {
 			send_pkt(port, PDELAY_REQ);
+			port_save_last_added(port);
+			port->pdresp = -1;
+			port->pdresp_fup = -1;
+		}
+
 		/* if (!port->cfg.nonstop_flag) */
 		/* port->cfg.count--; */
 		/* if (!debugen) { */
@@ -238,38 +288,36 @@ out:
 	return err;
 }
 
-static void run(Port *p1, Port *p2)
+/* TODO: BC needs to know what the current delay/pdelay was when receiving a Sync */
+static void run(Port *p)
 {
 	Stats s;
 	int err;
 
-	p1->sync_count = p1->cfg.count;
-	p2->delay_req_count = p2->cfg.count;
+	p->delay_req_count = p->cfg.count;
 
-	port_set_timer(p1, FD_SYNC_TX_TIMER, p1->cfg.interval);
-	port_set_timer(p2, FD_DELAY_TIMER, p2->cfg.interval);
+	port_set_timer(p, FD_DELAY_TIMER, p->cfg.interval);
 
-	while (is_running() && p1->sync_count > 0 && p2->delay_req_count > 0) {
-		port_poll(p1);
-		port_poll(p2);
+	while (is_running() && p->delay_req_count > 0) {
+		port_poll(p);
 	}
 
-	/* Both sides get a couple extra polls to pick up any remaining messages */
+	/* Do a couple extra polls to pick up any remaining messages */
 	for (int i = 0; i < 100; i++) {
-		port_poll(p1);
-		port_poll(p2);
+		port_poll(p);
 	}
 
-	err = stats_init(&s, p1->cfg.dm);
+	err = stats_init(&s, p->cfg.dm);
 	if (err)
 		return;
-	stats_collect_port_record(&p2->record, &s);
-	stats_show(&s, p1->cfg.interface, p2->cfg.interface, p1->sync_count + p2->delay_req_count);
-	stats_output_measurements(&s, "measurements.dat");
+	stats_collect_port_record(&p->record, &s);
+	stats_show_te(&s, p->cfg.interface, 0, measured_link_delay);
+	/* stats_show(&s, p1->cfg.interface, p2->cfg.interface, p1->sync_count + p2->delay_req_count); */
+	/* stats_output_measurements(&s, "measurements.dat"); */
 	stats_free(&s);
 }
 
-static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, char **p2)
+static int te_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1)
 {
 	int type;
 	int c;
@@ -279,7 +327,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 	cfg->version = 2; // | (1 << 4);
 	cfg->twoStepFlag = 1;
 	cfg->count = 10;
-	cfg->interval = 100;
+	cfg->interval = 1000;
 	cfg->listen = -1;
 	cfg->dm = DM_E2E;
 
@@ -291,11 +339,11 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 					 { NULL, 0, NULL, 0 } };
 
 	if (argc == 1) {
-		tc_help();
+		te_help();
 		return EINVAL;
 	}
 
-	while ((c = getopt_long(argc, argv, "EPSdD:hI:i:m:c:v:o", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "EPSdD:hI:i:m:c:v:oO", long_options, NULL)) != -1) {
 		switch (c) {
 		case 1:
 			cfg->transportSpecific = strtoul(optarg, NULL, 0);
@@ -318,11 +366,12 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 		case 'o':
 			cfg->tstype = TS_ONESTEP;
 			break;
+		case 'O':
+			cfg->tstype = TS_P2P1STEP;
+			break;
 		case 'i':
 			if (*p1 == NULL) {
 				*p1 = optarg;
-			} else if (*p2 == NULL) {
-				*p2 = optarg;
 			} else {
 				printf("Too many ports\n");
 				return EINVAL;
@@ -362,7 +411,7 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 			debugen = 1;
 			break;
 		case 'h':
-			tc_help();
+			te_help();
 			return EINVAL;
 		case '?':
 			if (optopt == 'c')
@@ -371,29 +420,29 @@ static int tc_parse_opt(int argc, char **argv, struct pkt_cfg *cfg, char **p1, c
 				fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
 			return EINVAL;
 		default:
-			tc_help();
+			te_help();
 			return EINVAL;
 		}
 	}
 
-	if (!p1 || !p2) {
-		printf("Needs two ports. Use -i ethN -i ethM to specify two ports\n");
+	if (!p1) {
+		printf("Must specify port. Use -i ethN\n");
 		return EINVAL;
 	}
 
 	return 0;
 }
 
-int run_tc_mode(int argc, char **argv)
+int run_te_mode(int argc, char **argv)
 {
 	enum transport_event event_type;
 	struct pkt_cfg cfg = { 0 };
 	int p1_sock, p2_sock;
-	char *p1 = NULL, *p2 = NULL;
+	char *p = NULL;
 	int count;
 	int err;
 
-	err = tc_parse_opt(argc, argv, &cfg, &p1, &p2);
+	err = te_parse_opt(argc, argv, &cfg, &p);
 	if (err)
 		return err;
 
@@ -403,17 +452,13 @@ int run_tc_mode(int argc, char **argv)
 	if (!cfg.count)
 		cfg.nonstop_flag = 1;
 
-	Port port1;
-	Port port2;
-	/* port_init(&port1, cfg, p1, tc_event, true, true, true); */
-	port_init(&port1, cfg, p1, tc_event, false, true, true);
-	port_init(&port2, cfg, p2, tc_event, true, true, true);
+	Port port;
+	port_init(&port, cfg, p, te_event, true, true, true);
 
 	count = cfg.count;
-	run(&port1, &port2);
+	run(&port);
 
 out:
-	port_free(&port1);
-	port_free(&port2);
+	port_free(&port);
 	return 0;
 }
