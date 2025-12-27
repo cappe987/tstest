@@ -10,4 +10,4 @@ def setup():
 
 @pytest.fixture(scope="session")
 def tstest():
-    return "build/tstest"
+    return "./build/tstest"

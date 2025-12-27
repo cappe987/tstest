@@ -4,7 +4,7 @@ import time
 
 def test_delay_single(tstest):
     server = subprocess.Popen([tstest, 'delay', 'server', '-S', '-i', 'veth1'])
-    time.sleep(1)
+    time.sleep(0.2)
 
     client = subprocess.run([tstest, 'delay', 'client', '-S', '-i', 'veth2', '-c', '1'], capture_output=True, text=True)
     os.system(f"kill {server.pid}")
