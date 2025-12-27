@@ -21,7 +21,7 @@ clean:
 	rm -f $(OUTDIR)*.o $(BIN)
 
 test: $(OUTDIR)$(BIN)
-	unshare -r -n ./scripts/test.sh ./build/tstest $(t)
+	unshare -r -n pytest --tb=no
 
 pipeline_test: $(BIN)
 	./scripts/test.sh ./build/tstest $(t)
