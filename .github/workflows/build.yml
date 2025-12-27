@@ -16,25 +16,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
-      - name: Configure
+      - name: Debug workspace
         run: |
-          mkdir build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=RELEASE ..
+          echo "src contents:"
+          ls -l
+          ls -l src
       - name: Build
         run: |
-          cd build
           make
-      #- name: Install test dependencies
-        #run: |
-          #sudo apt install tshark
-          #sudo apt install tcpdump
       - name: Test
         run: |
-          cd build
+          sudo make pipeline_test
           # Use sudo and a specific pipeline_test command since in
           # Ubuntu 24.04 you can't run `unshare` when unprivilegied.
-          sudo make pipeline_test
   build-aarch64:
     name: Build aarch64
     runs-on: ubuntu-24.04
@@ -43,15 +37,9 @@ jobs:
       - name: Installing dependencies
         run: |
           sudo apt install gcc-aarch64-linux-gnu
-      - name: Configure
-        run: |
-          mkdir build
-          cd build
-          cmake -DCMAKE_C_COMPILTER=/usr/bin/aarch64-linux-gnu-gcc -DCMAKE_BUILD_TYPE=RELEASE ..
       - name: Build
         run: |
-          cd build
-          make
+          make CC=/usr/bin/aarch64-linux-gnu-gcc
   build-arm:
     name: Build arm
     runs-on: ubuntu-24.04
@@ -60,13 +48,7 @@ jobs:
       - name: Installing dependencies
         run: |
           sudo apt install gcc-arm-linux-gnueabi
-      - name: Configure
-        run: |
-          mkdir build
-          cd build
-          cmake -DCMAKE_C_COMPILTER=/usr/bin/arm-linux-gnueabi-gcc -DCMAKE_BUILD_TYPE=RELEASE ..
       - name: Build
         run: |
-          cd build
-          make
+          make CC=/usr/bin/arm-linux-gnueabi-gcc
 

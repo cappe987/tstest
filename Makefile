@@ -1,10 +1,9 @@
 
-CC=gcc
+CC ?= gcc
 SRCDIR = src/
 OUTDIR = build/
 INCLUDE_DIR = include/
 CFLAGS = -Iinclude -I$(INCLUDE_DIR)
-
 
 _OBJ = check.o delay.o extts.o liblink.o pkt.o ptp_message.o stats.o \
        tc.o te.o timestamping.o tstest.o
@@ -17,14 +16,18 @@ $(OUTDIR)$(BIN): $(OBJ)
 $(OUTDIR)%.o: $(SRCDIR)%.c | $(OUTDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(OUTDIR):
+	mkdir -p $(OUTDIR)
+
 clean:
-	rm -f $(OUTDIR)*.o $(BIN)
+	rm -f $(OUTDIR)*.o $(OUTDIR)$(BIN)
+	rmdir build/
 
 test: $(OUTDIR)$(BIN)
-	unshare -r -n pytest --tb=no
+	unshare -r -n pytest --tb=no $(t)
 
-pipeline_test: $(BIN)
-	./scripts/test.sh ./build/tstest $(t)
+pipeline_test: $(OUTDIR)$(BIN)
+	pytest --tb=no $(t)
 
 install: $(OUTDIR)$(BIN)
 	cp $(OUTDIR)$(BIN) /usr/local/bin/$(BIN)
