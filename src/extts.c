@@ -20,7 +20,6 @@
 #include <poll.h>
 
 #include "net_tstamp_cpy.h"
-#include "version.h"
 #include "tstest.h"
 #include "pkt.h"
 

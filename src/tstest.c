@@ -4,19 +4,21 @@
 #include <stdio.h>
 #include <errno.h>
 
-#include "version.h"
 #include "tstest.h"
+
+#define TSTEST_VERSION_MAJOR 1
+#define TSTEST_VERSION_MINOR 0
 
 int tstest_version()
 {
-	fprintf(stderr, "TSTest v%d.%d\n", tstest_VERSION_MAJOR, tstest_VERSION_MINOR);
+	fprintf(stderr, "TSTest v%d.%d\n", TSTEST_VERSION_MAJOR, TSTEST_VERSION_MINOR);
 	return EINVAL;
 }
 
 int tstest_help()
 {
 	fprintf(stderr, "\n");
-	fprintf(stderr, "--- TSTest v%d.%d ---\n", tstest_VERSION_MAJOR, tstest_VERSION_MINOR);
+	fprintf(stderr, "--- TSTest v%d.%d ---\n", TSTEST_VERSION_MAJOR, TSTEST_VERSION_MINOR);
 	fprintf(stderr, "\nUsage:\n\ttstest [mode]\n\n");
 	fprintf(stderr, "Modes:\n\
 	pkt - Send individual PTP packets\n\
