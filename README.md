@@ -11,10 +11,14 @@ functionality at a time. Great for debugging purposes.
 - `tstest delay` can perform basic peer delay measurement.
 - `tstest extts` can listen to EXTTS events from the kernel.
 - `tstest tc` can measure TC time error, latency, and more.
+- `tstest te` can measure time error, latency, and more. Some overlap with `tc`.
 - `tstest pps` can configure PPS.
 
 
 ## TODO
+- Add GM mode (send out Announce indiscriminately, send Sync and
+  respond to Delay). Can be paired with `te` mode which runs the slave
+  to measure the results instead of a full ptp4l GM.
 - Add BC Time Error support (either just receiver, or act as both GM and Slave).
 - Add E2E delay
 - Idea: `tstest check` mode that takes a config file of actions it should check

@@ -26,6 +26,7 @@ int tstest_help()
 	pps - Configure PPS\n\
 	delay - Perform path delay measurements\n\
 	tc - Test Transparent Clock correction\n\
+	te - Measure Time Error\n\
 	version - Show version\n");
 	fprintf(stderr, "\n");
 	return EINVAL;
