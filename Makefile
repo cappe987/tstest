@@ -20,8 +20,8 @@ $(OUTDIR):
 	mkdir -p $(OUTDIR)
 
 clean:
-	rm -f $(OUTDIR)*.o $(OUTDIR)$(BIN)
-	rmdir build/
+	rm $(OUTDIR)*.o $(OUTDIR)$(BIN)
+	rmdir $(OUTDIR)
 
 test: $(OUTDIR)$(BIN)
 	unshare -r -n pytest --tb=no $(t)
