@@ -21,9 +21,12 @@ functionality at a time. Great for debugging purposes.
   to measure the results instead of a full ptp4l GM.
 - Add BC Time Error support (either just receiver, or act as both GM and Slave).
 - Add E2E delay
+- Idea: Mock send/receive/poll/tstamp/socket via stdin/stdout for testing?
 - Idea: `tstest check` mode that takes a config file of actions it should check
   (send, receive, verify values). Should be run with a looped cable, else it
   would require two instances (which might be an option too).
+- tstest faketc, better than the libpcap Python script. Open sockets
+  and forward with random correctionField.
 
 ## TODO: TC Mode
 - Better handling for finding the initial max/min values. Use INT MIN/MAX?

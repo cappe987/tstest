@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 
-#include "timestamping.h"
-#include "tstest.h"
 #include <inttypes.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "timestamping.h"
+#include "tstest.h"
 #include "liblink.h"
 #include "stats.h"
 #include "pkt.h"
@@ -459,6 +459,62 @@ static StatsResult stats_get_time_error(Stats *s, int ptp_type, bool use_t4,
 	return r;
 }
 
+static int64_t te_pdelay_error(PacketData *pkt, enum pdelay_stats mode)
+{
+	int64_t val, t1, t2, t3, t4, c2, c3;
+
+	if (mode == LINK_DELAY) /* Measured link delay */
+		return pkt->fst->current_delay;
+
+	t1 = pkt->fst->tx_ts;
+	t2 = ptp_get_originTimestamp(&pkt->snd->msg);
+	c2 = ptp_get_correctionField(&pkt->snd->msg);
+	if (msg_is_onestep(&pkt->snd->msg)) {
+		t3 = 0;
+		c3 = 0;
+	} else {
+		t3 = ptp_get_originTimestamp(&pkt->trd->msg);
+		c3 = ptp_get_correctionField(&pkt->trd->msg);
+	}
+	t4 = pkt->snd->rx_ts;
+
+	if (mode == ACCURACY) { /* Pdelay Accuracy */
+		return (t4 - t1) - (t3 - t2) - c2 - c3;
+	} else if (mode == TURNAROUND_ACTUAL) { /* Pdelay turnaround time (Actual) */
+		return (t4 - t1);
+	} else if (mode == TURNAROUND_DUT) { /* Pdelay turnaround time (DUT) */
+		return (t3 - t2) - c2 - c3;
+	}
+	ERR("Unhandled case in %s", __func__);
+	return INT64_MIN;
+}
+
+static StatsResult stats_get_pdelay(Stats *s, enum pdelay_stats mode)
+{
+	StatsResult r = { 0 };
+	bool twoway = false;
+	int64_t sum_err = 0;
+	int64_t timeerror;
+	int count = 0;
+
+	PacketData *pkt;
+	FOREACH_PKT_TYPE(s, PDELAY_REQ, pkt) {
+		if (!pkt->fst->src_is_self)
+			continue;
+		timeerror = te_pdelay_error(pkt, mode);
+		if (timeerror > r.max || count == 0)
+			r.max = timeerror;
+		if (timeerror < r.min || count == 0)
+			r.min = timeerror;
+		sum_err += timeerror;
+		count++;
+	}
+	if (count == 0)
+		return r;
+	r.mean = sum_err / count;
+	return r;
+}
+
 static StatsResult stats_get_sync_latency(Stats *s)
 {
 	StatsResult r = { 0 };
@@ -519,6 +575,7 @@ void stats_show_te(Stats *s, char *p1, int count_left, bool measured_link_delay)
 	StatsResult sync_time_error;
 	StatsResult delay_time_error;
 	StatsResult twoway_time_error;
+	StatsResult pdelay;
 
 	if (s->count == 0) {
 		printf("No measurements\n");
@@ -563,12 +620,21 @@ void stats_show_te(Stats *s, char *p1, int count_left, bool measured_link_delay)
 		printf("Mean: %" PRId64 "\n", sync_time_error.mean);
 		printf("Max : %" PRId64 "\n", sync_time_error.max);
 		printf("Min : %" PRId64 "\n", sync_time_error.min);
-		/* delay_time_error = stats_get_time_error(s, DELAY_REQ, measured_link_delay); */
-
-		/* What should output look like for PDELAY? 
-		 * Measured Link Delay
-		 * How to calculate when not using measured_link_delay?
-		 */
+		pdelay = stats_get_pdelay(s, LINK_DELAY);
+		printf("--- Measured Link Delay ---\n");
+		printf("Mean: %" PRId64 "\n", pdelay.mean);
+		printf("Max : %" PRId64 "\n", pdelay.max);
+		printf("Min : %" PRId64 "\n", pdelay.min);
+		pdelay = stats_get_pdelay(s, TURNAROUND_ACTUAL);
+		printf("--- Peer Delay Turnaround (Actual) ---\n");
+		printf("Mean: %" PRId64 "\n", pdelay.mean);
+		printf("Max : %" PRId64 "\n", pdelay.max);
+		printf("Min : %" PRId64 "\n", pdelay.min);
+		pdelay = stats_get_pdelay(s, TURNAROUND_DUT);
+		printf("--- Peer Delay Turnaround (DUT) ---\n");
+		printf("Mean: %" PRId64 "\n", pdelay.mean);
+		printf("Max : %" PRId64 "\n", pdelay.max);
+		printf("Min : %" PRId64 "\n", pdelay.min);
 	}
 }
 

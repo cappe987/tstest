@@ -39,7 +39,6 @@ typedef struct {
 typedef struct {
 	uint8_t primary_type; /* Sync, DelayReq, PdelayReq, etc. */
 	uint16_t seqid;
-	bool src_is_self;
 	MessageRecord *fst; /* Sync, DelayReq, PdelayReq, etc. */
 	MessageRecord *snd; /* FollowUp, DelayResp, PdelayResp */
 	MessageRecord *trd; /* PdelayRespFup */
@@ -63,6 +62,13 @@ static PacketData *get_next_of_type(Stats *s, int *i, int type)
 	}
 	return NULL;
 }
+
+enum pdelay_stats {
+	LINK_DELAY,
+	ACCURACY,
+	TURNAROUND_ACTUAL,
+	TURNAROUND_DUT,
+};
 
 #define FOREACH_PKT_TYPE(stats, type, pkt_ptr)                                                     \
 	for (int i = 0; (pkt_ptr = get_next_of_type(stats, &i, type)); i++)
