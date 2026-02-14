@@ -370,23 +370,18 @@ static int64_t tc_get_oneway_error(PacketData *pkt, bool measured_link_delay)
 	int64_t val;
 
 	if (pkt->primary_type == SYNC) {
-		if (msg_is_onestep(&pkt->fst->msg))
-			/* val = pkt->fst->rx_ts - pkt->fst->tx_ts - */
-			/* ptp_get_correctionField(&pkt->fst->msg); */
-			val = pkt->fst->tx_ts - pkt->fst->rx_ts -
+		if (msg_is_onestep(&pkt->fst->msg)) /* t2 - t1 - c1 = T1TE */
+			val = pkt->fst->rx_ts - pkt->fst->tx_ts -
 			      ptp_get_correctionField(&pkt->fst->msg);
-		else
-			/* val = pkt->fst->rx_ts - ptp_get_originTimestamp(&pkt->snd->msg) - */
-			/*       ptp_get_correctionField(&pkt->fst->msg) - */
-			/*       ptp_get_correctionField(&pkt->snd->msg); */
-			val = ptp_get_originTimestamp(&pkt->snd->msg) - pkt->fst->rx_ts -
+		else /* t2 - t1 - c1 - c2 = T1TE */
+			val = pkt->fst->rx_ts - ptp_get_originTimestamp(&pkt->snd->msg) -
 			      ptp_get_correctionField(&pkt->fst->msg) -
 			      ptp_get_correctionField(&pkt->snd->msg);
-		if (measured_link_delay)
+		if (measured_link_delay) /* Subtract (p)delay to get true offset */
 			return val - pkt->fst->current_delay;
 		else
 			return val;
-	} else if (pkt->primary_type == DELAY_REQ) {
+	} else if (pkt->primary_type == DELAY_REQ) { /* t4 - t3 - c3 - c4 = T4TE*/
 		val = ptp_get_originTimestamp(&pkt->snd->msg) - pkt->fst->tx_ts -
 		      ptp_get_correctionField(&pkt->fst->msg) -
 		      ptp_get_correctionField(&pkt->snd->msg);
