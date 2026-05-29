@@ -8,7 +8,7 @@ def make_page(info, t, s):
     AX_GRAPH = 0
     AX_TABLE = 1
     fig, ax = plt.subplots(2, height_ratios=[2, 1])
-    ax[AX_GRAPH].margins(0, 0)
+    ax[AX_GRAPH].margins(0, 0.2)
     ax[AX_GRAPH].plot(t, s, color=info['color']) #, label="Time Error")
     # ax[0].legend()
 
@@ -46,12 +46,16 @@ def make_page(info, t, s):
 
 texts = {
     'SYNC_TIME_ERROR': {'title': 'Sync Time Error', 'ylabel': 'Time Error [ns]', 'color': 'blue'},
+    'DELAY_TIME_ERROR': {'title': 'Delay Time Error', 'ylabel': 'Time Error [ns]', 'color': 'blue'},
+    'TWOWAY_TIME_ERROR': {'title': 'Twoway Time Error', 'ylabel': 'Time Error [ns]', 'color': 'blue'},
     'SYNC_LATENCY': {'title': 'Sync Latency', 'ylabel': 'Latency [ns]', 'color': 'green'},
+    'DELAY_LATENCY': {'title': 'Delay Latency', 'ylabel': 'Latency [ns]', 'color': 'green'},
     'SYNC_PDV': {'title': 'Sync PDV (Packet Delay Variance)', 'ylabel': 'PDV [ns]', 'color': 'red'},
 }
 
 
 data = open('measurements.dat', 'r').read().split('\n\n')
+data = open('measurement2.dat', 'r').read().split('\n\n')
 
 # print(data)
 
