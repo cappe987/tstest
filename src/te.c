@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2025 Casper Andersson <casper.casan@gmail.com>
 
-#include "timestamping.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,7 +122,9 @@ static int handle_delay(Port *p, int type)
 		t2 = sync->rx_ts;
 		p->last_sync_t2t1 = t2 - t1 - ptp_get_correctionField(&sync->msg) -
 				    ptp_get_correctionField(&fup->msg);
-		DEBUG("T1: %" PRId64 "\n", p->last_sync_t2t1);
+		/* DEBUG("Sync T1: %" PRId64 "\n", t1); */
+		/* DEBUG("Sync T2: %" PRId64 "\n", t2); */
+		DEBUG("Sync: %" PRId64 "\n", p->last_sync_t2t1);
 		p->sync = -1;
 		p->fup = -1;
 		print_offset(p);
@@ -177,6 +178,7 @@ static int handle_delay(Port *p, int type)
 		p->current_delay = ((t4 - t1) - (t3 - t2) - ptp_get_correctionField(&pdresp->msg) -
 				    ptp_get_correctionField(&pdresp_fup->msg)) /
 				   2;
+		pdreq->current_delay = p->current_delay;
 		DEBUG("Pdelay: %" PRId64 "\n", p->current_delay);
 		p->pdreq = -1;
 		p->pdresp = -1;
@@ -278,6 +280,10 @@ int te_event(Port *port, int fd_index)
 			port_clear_timer(port, FD_DELAY_TIMER);
 		}
 		break;
+	case FD_ANNOUNCE_TIMER:
+		break;
+	case FD_SYNC_TX_TIMER:
+		break;
 	default:
 		read(port->pollfd[fd_index].fd, dummybuf, 8);
 		ERR("Unhandled event on FD index %d\n", fd_index);
@@ -297,6 +303,8 @@ static void run(Port *p)
 	p->delay_req_count = p->cfg.count;
 
 	port_set_timer(p, FD_DELAY_TIMER, p->cfg.interval);
+	/* port_set_timer(p2, FD_SYNC_TX_TIMER, p->cfg.interval); */
+	/* port_set_timer(p2, FD_ANNOUNCE_TIMER, 1000); */
 
 	while (is_running() && p->delay_req_count > 0) {
 		port_poll(p);

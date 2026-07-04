@@ -3,7 +3,7 @@ CC ?= gcc
 SRCDIR = src/
 OUTDIR = build/
 INCLUDE_DIR = include/
-CFLAGS = -Iinclude -I$(INCLUDE_DIR)
+CFLAGS = -I$(INCLUDE_DIR)
 
 _OBJ = check.o delay.o extts.o liblink.o pkt.o ptp_message.o stats.o \
        tc.o te.o timestamping.o tstest.o
